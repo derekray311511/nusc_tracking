@@ -26,13 +26,16 @@ import tf
 GT_CATEGORIES = [
     'vehicle.car', 'vehicle.motorcycle', 'vehicle.bicycle', 'vehicle.trailer',
     'vehicle.bus.bendy', 'vehicle.bus.rigid', 'vehicle.truck', 
+    'human.pedestrian.adult', 'human.pedestrian.child', 'human.pedestrian.wheelchair', 
+    'human.pedestrian.stroller', 'human.pedestrian.stroller', 'human.pedestrian.personal_mobility', 
+    'human.pedestrian.police_officer', 'human.pedestrian.construction_worker', 
 ]
 
 def q_to_xyzw(Q):
-        '''
-        wxyz -> xyzw
-        '''
-        return [Q[1], Q[2], Q[3], Q[0]]
+    '''
+    wxyz -> xyzw
+    '''
+    return [Q[1], Q[2], Q[3], Q[0]]
 
 def q_to_wxyz(Q):
     '''
@@ -288,7 +291,7 @@ class dataset:
 
         return new_trans
 
-    def get_bbox_result(self, token, data_type='detection'):
+    def get_bbox_result(self, token, data_type='detection', th=0):
         """Get tracking result for bounding box on specific sample token.
 
         [x, y, z, dx, dy, dz, heading, vx, vy, id, name] in each box.
@@ -312,10 +315,12 @@ class dataset:
             Quaternion = q_to_xyzw(bbox['rotation'])
             roll, pitch, yaw = euler_from_quaternion(Quaternion)
             if data_type == 'track':
+                if bbox['tracking_score'] < th: continue
                 id = bbox['tracking_id']
                 name = bbox['tracking_name']
                 new_boxes.append([x, y, z, dx, dy, dz, yaw, vx, vy, id, name])
             else:
+                if bbox['detection_score'] < th: continue
                 name = bbox['detection_name']
                 new_boxes.append([x, y, z, dx, dy, dz, yaw, vx, vy, name])
         return new_boxes
@@ -337,11 +342,26 @@ class dataset:
                 bboxes.append([x, y, z, dx, dy, dz, yaw])
         return bboxes
 
+    def get_cam_imgs(self, token):
+        name_list = [
+            'CAM_FRONT_LEFT', 'CAM_FRONT', 'CAM_FRONT_RIGHT', 
+            'CAM_BACK_RIGHT', 'CAM_BACK', 'CAM_BACK_LEFT'
+        ]
+        sample_record = self.nusc.get('sample', token)
+        imgs = {}
+        for sensor in name_list:
+            filename = self.nusc.get('sample_data', sample_record['data'][sensor])['filename']
+            filename = os.path.join(self.dataroot, filename)
+            imgs.update({sensor: cv2.imread(filename)})
+        return imgs
+
 class pub_data:
     def __init__(self):
         self.br = tf.TransformBroadcaster()
         self.lidar_pub = rospy.Publisher("lidar_pointcloud", PointCloud2, queue_size=10)
         self.radar_pub = rospy.Publisher("radar_pointcloud", PointCloud2, queue_size=10)
+        self.front_cam_pub = rospy.Publisher("front_camera", Image, queue_size=10)
+        self.back_cam_pub = rospy.Publisher("back_camera", Image, queue_size=10)
         self.det_pub = rospy.Publisher("detection", MarkerArray, queue_size=10)
         self.trk_pub = rospy.Publisher("tracking", MarkerArray, queue_size=10)
         self.gt_pub = rospy.Publisher("groundtruth", MarkerArray, queue_size=10)
@@ -392,6 +412,17 @@ class pub_data:
                 bbox = [corners, center, velocity, name, id]
             bboxes_corners.append(bbox)
         self.draw_bboxes(bboxes_corners, color, namespace, show_id, show_vel)
+
+    def pub_cam(self, imgs):
+        img_list = []
+        for i, (name, img) in enumerate(imgs.items()):
+            cv2.putText(img, name, (10, 60), cv2.FONT_HERSHEY_TRIPLEX, 3, (20, 100, 160), 3, cv2.LINE_AA)
+            img_list.append(img)
+        img_front = np.hstack([img_list[0], img_list[1], img_list[2]])
+        img_back = np.hstack([img_list[3], img_list[4], img_list[5]])
+        bridge = CvBridge()
+        self.front_cam_pub.publish(bridge.cv2_to_imgmsg(img_front, "bgr8"))
+        self.back_cam_pub.publish(bridge.cv2_to_imgmsg(img_back, "bgr8"))
 
     def draw_cube(self, bboxes, RGBcolor, namespace='gt', show_id=False, show_vel=False):
         self.clear_markers(self.gt_marker_array.markers)
@@ -548,6 +579,7 @@ def parser():
     parser.add_argument("--frames_meta_path", type=str, default='/home/Student/Tracking/data/frames_meta.json')
     parser.add_argument("--vis_gt", type=int, default=1)
     parser.add_argument("--pub_rate", type=float, default=2)
+    parser.add_argument("--vis_th", type=float, default=0)
     return parser
 
 def main(parser):
@@ -599,15 +631,19 @@ def main(parser):
             img = key_shower.add_rect(img)
         cv2.imshow('keys', img)
 
-        # Load bboxes
-        det = data.get_bbox_result(token, data_type='detection')
-        trk = data.get_bbox_result(token, data_type='track')
+        # Load raw data and bounding boxes
+        lidar_pc = data.read_lidar_pc(token)
+        radar_pc = data.read_radar_pc(token)[:, :3]
+        cam_imgs = data.get_cam_imgs(token)
+        det = data.get_bbox_result(token, data_type='detection', th=args.vis_th)
+        trk = data.get_bbox_result(token, data_type='track', th=args.vis_th)
         gt = data.get_gt_bbox(token)
 
         # Publish raw data and bounding boxes
-        publisher.pub_pc(data.read_lidar_pc(token), name='lidar')
-        publisher.pub_pc(data.read_radar_pc(token)[:, :3], name='radar')
+        publisher.pub_pc(lidar_pc, name='lidar')
+        publisher.pub_pc(radar_pc, name='radar')
         publisher.broadcast(data.nusc, token)
+        publisher.pub_cam(cam_imgs)
         publisher.pub_bboxes(det, namespace='detection', show_id=False, show_vel=False)
         publisher.pub_bboxes(trk, namespace='track', show_id=True, show_vel=True)
         publisher.pub_bboxes(gt, namespace='gt', show_id=False, show_vel=False)
