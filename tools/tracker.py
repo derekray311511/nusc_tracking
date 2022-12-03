@@ -342,10 +342,6 @@ class PubTracker(object):
                 track['translation'][1] = track['KF'].x[1]
                 track['velocity'][0] = track['KF'].x[2]
                 track['velocity'][1] = track['KF'].x[3]
-            self.tracks[m[1]]['detection_score'] = np.clip(self.tracks[m[1]]['detection_score'] - self.noise,
-                                                           a_min=0.0, a_max=1.0)
-            # update detection score
-            # track['detection_score'] = update_function(self, track, m, self.loaded_model)['detection_score']
             ret.append(track)
 
         # add unmatched resources as new 'born' tracklets
@@ -368,15 +364,14 @@ class PubTracker(object):
                                               [0., 1., 0., 0., 0., 0.]])
                 track['KF'].x = np.hstack([track['ct'], np.array(track['velocity'][:2]), np.zeros(2)])
                 track['KF'].P *= 10
-            # uncomment these line and comment the line above if you want to make the experiments
-            # in which with the resources are active only above a threshold
             if track['detection_score'] > self.det_th:
                 track['active'] = 1
             else:
                 track['active'] = 0
             ret.append(track)
 
-        # still store unmatched tracks, however, we shouldn't output the object in current frame
+        # still store unmatched tracks if its age doesn't exceed max_age, 
+        # however, we shouldn't output the object in current frame
         for i in unmatched_trk:
             track = self.tracks[i]
 
@@ -387,16 +382,17 @@ class PubTracker(object):
             # keep tracklet if score is above threshold AND age is not too high
             if track['age'] < self.max_age and track['detection_score'] > self.del_th:
                 track['age'] += 1
+                # Activate if score is large enough
                 if track['detection_score'] > self.s_th:
                     track['active'] += 1
                 else:
                     track['active'] = 0
+                    
                 ct = track['ct']
-
                 if 'tracking' in track:
                     offset = track['tracking'] * -1  # move forward
                     track['ct'] = ct + offset
-                    track['translation'] = [track['ct'][0], track['ct'][1], 0.0]
+                    track['translation'][:2] = track['ct']
                 ret.append(track)
 
         self.tracks = ret

@@ -205,6 +205,9 @@ class nusc_dataset:
         return transform_matrix(pose['translation'], Quaternion(pose['rotation']), inverse=inverse)
 
     def lidar2world(self, objects, token, inverse=False):
+        '''
+        Transform objects from lidar coordinates to world coordinates
+        '''
         objects = deepcopy(objects)
 
         sample_record = self.nusc.get('sample', token)
@@ -231,25 +234,9 @@ class nusc_dataset:
             object['translation'] = new_trans[:3, 3].ravel().tolist()
             object['rotation'] = q_to_wxyz(R.from_matrix(new_trans[:3, :3]).as_quat())
             object['velocity'] = new_vel.ravel()[:2]
-            object['velocity'][1] *= -1
             ret.append(object)
 
         return ret
-
-    def first_frame_token_list(self):
-        token_list = []
-        scenes = self.nusc.scene
-        for scene in scenes:
-            if scene['name'] in self.scene_names:
-                first_sample_token = scene['first_sample_token']
-                token_list.append(first_sample_token)
-        return token_list
-
-    def is_first_frame(self, token):
-        if token in self.first_frame_token_list():
-            return True
-        else:
-            return False
 
 # Tracking usage ==========================================
 
@@ -294,10 +281,6 @@ def main() -> None:
         "results": {},
         "meta": None,
     }
-    nusc_annos_det = {
-        "results": {},
-        "meta": None,
-    }
     
     # Load detection results
     detections = dataset.get_det_results()
@@ -311,7 +294,7 @@ def main() -> None:
     for i in tqdm(range(len_frames)):
         # get frameID (=token)
         token = frames[i]['token']
-        timestamp = frames[i]['timestamp'] * 1e-6
+        timestamp = frames[i]['timestamp']
 
         name = "{}-{}".format(timestamp, token)
 
@@ -333,7 +316,6 @@ def main() -> None:
 
         # prepare writen results file
         annos_trk = []
-        annos_det = []
 
         # Save tracking results in world coordinates
         for item in outputs:
