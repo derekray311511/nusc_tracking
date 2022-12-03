@@ -26,3 +26,6 @@ Need to download dataset from nuscenes trainval dataset from [their website](htt
 1. `cd ros_ws`
 2. `catkin_make -DPYTHON_EXECUTABLE=/usr/bin/python3`
 3. `source devel/setup.bash`
+4. First terminal: `roscore`
+5. Second terminal: `rviz -d configs/track.rviz` (can work outside of the docker container)
+6. Third terminal: `bash src/visualize.sh`
