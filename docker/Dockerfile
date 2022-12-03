@@ -75,5 +75,10 @@ RUN pip install motmetrics==1.1.3
 RUN pip install numpy==1.19.2
 RUN pip install filterpy
 
+# For visualization
+RUN pip install pyyaml
+RUN pip install rospkg
+
 # Change to user mode
 USER $USERNAME
+RUN source /opt/ros/noetic/setup.bash
