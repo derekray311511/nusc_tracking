@@ -1,10 +1,10 @@
 # Baseline tracking
 
-## Data preparation
+## PART1 Data preparation
 - Detection result and frames meta data from [here](https://drive.google.com/drive/folders/13jmwcS2qu89QftSmrWmGpgQu20gF8YPl?usp=share_link).
-- If you want to evaluate by yourself, you will need to download nuscenes trainval dataset from [their website](https://www.nuscenes.org/nuscenes#download).
+- If you want to evaluate and visualize, you will need to download nuscenes trainval dataset from [their website](https://www.nuscenes.org/nuscenes#download).
 
-## Environment setup
+## PART2 Environment setup
 1. `git clone https://github.com/derekray311511/nusc_baseline_tracking.git`  
 2. cd to the workspace directory you just clone.  
     `cd nusc_baseline_tracking`  
@@ -13,7 +13,16 @@
     `bash run.sh`  
     run the same container in other terminal  
     `docker exec -it tracking bash`  
-5. Create a virtual path to data directory  
+5. Create a virtual path to data directory in docker
     `cd /home/Student/Tracking`  
     `ln -fsv /data data`   
-6. Put the `detection_result.josn` and `frames_meta.json` (download from ???) into your data directory
+6. Put the `detection_result.josn` and `frames_meta.json` (download from PART1) into your data directory
+
+## PART3 Tracking
+
+
+## PART4 Visualization
+Need to download dataset from nuscenes trainval dataset from [their website](https://www.nuscenes.org/nuscenes#download).
+1. `cd ros_ws`
+2. `catkin_make -DPYTHON_EXECUTABLE=/usr/bin/python3`
+3. `source devel/setup.bash`
