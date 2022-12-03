@@ -195,8 +195,8 @@ class nusc_dataset:
     def get_det_meta(self):
         return self.det_res['meta']
 
-    def get_det_results(self):
-        return self.det_res['results']
+    def get_det_results(self, bbox_th):
+        return self.filter_box(self.det_res['results'], bbox_th)
 
     def get_frames_meta(self):
         return self.frames['frames']
@@ -238,6 +238,20 @@ class nusc_dataset:
 
         return ret
 
+    def filter_box(self, det_res, th):
+        print("======")
+        print(f"Filtering bboxes by threshold {th}...", end='')
+        ret_dict = {}
+        for i, (token, bboxes) in enumerate(det_res.items()):
+            ret_bboxes = []
+            for bbox in bboxes:
+                if bbox['detection_score'] < th:
+                    continue
+                ret_bboxes.append(bbox)
+            ret_dict.update({token: ret_bboxes})
+        print("Done.")
+        return ret_dict
+
 # Tracking usage ==========================================
 
 def main() -> None:
@@ -249,7 +263,7 @@ def main() -> None:
 
     parser.add_argument("--min_hits", type=int, default=1)
     parser.add_argument("--det_th", type=float, default=0.1)
-    parser.add_argument("--visualize", type=int, default=0)
+    # parser.add_argument("--visualize", type=int, default=0)
     parser.add_argument("--evaluate", type=int, default=0)
     parser.add_argument("--dataroot", type=str, default='data/nuscenes')
     parser.add_argument("--detection_path", type=str, default='data/detection_result.json')
@@ -283,7 +297,7 @@ def main() -> None:
     }
     
     # Load detection results
-    detections = dataset.get_det_results()
+    detections = dataset.get_det_results(args.bbox_score)
     frames = dataset.get_frames_meta()
     len_frames = len(frames)
 
@@ -353,10 +367,10 @@ def main() -> None:
         "use_external": False,
     }
 
+    # write result file
     root_path = args.out_dir
     track_res_path = os.path.join(root_path, 'tracking_result.json')
     mkdir_or_exist(os.path.dirname(track_res_path))
-    # write result file
     with open(track_res_path, "w") as f:
         json.dump(nusc_annos_trk, f)
     print(f"tracking results write to {track_res_path}\n")
