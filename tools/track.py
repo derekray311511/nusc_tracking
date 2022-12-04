@@ -261,8 +261,13 @@ def main() -> None:
     parser.add_argument("--bbox-score", type=float, default=None)
     parser.add_argument("--out-dir", type=str, default="data/track_results")
 
+    parser.add_argument("--tracker", type=str, default='PointTracker')
     parser.add_argument("--min_hits", type=int, default=1)
-    parser.add_argument("--det_th", type=float, default=0.1)
+    parser.add_argument("--max_age", type=int, default=6)
+    parser.add_argument("--det_th", type=float, default=0.0)
+    parser.add_argument("--del_th", type=float, default=0.0)
+    parser.add_argument("--active_th", type=float, default=1.0)
+    parser.add_argument("--use_vel", type=int, default=0)
     # parser.add_argument("--visualize", type=int, default=0)
     parser.add_argument("--evaluate", type=int, default=0)
     parser.add_argument("--dataroot", type=str, default='data/nuscenes')
@@ -282,13 +287,15 @@ def main() -> None:
     from tracker import PubTracker
     tracker = PubTracker(
         hungarian=False,
-        max_age=6,
-        active_th=1,
+        max_age=args.max_age,
+        active_th=args.active_th,
         min_hits=args.min_hits,
         score_update=None,
-        deletion_th=0,
+        deletion_th=args.del_th,
         detection_th=args.det_th,
         dataset='Nuscenes',
+        use_vel=args.use_vel,
+        tracker=args.tracker,
     )
     # prepare writen output file
     nusc_annos_trk = {

@@ -181,9 +181,8 @@ def reshape(hungarian):
 
 class PubTracker(object):
     def __init__(self, hungarian=False, max_age=6, noise=0.05, active_th=1, min_hits=1, score_update=None,
-                 deletion_th=0.0,
-                 detection_th=0.0, dataset='Nuscenes', model_path = 'LeakyReLU.th'):
-        self.tracker = 'PointTracker'
+                 deletion_th=0.0, detection_th=0.0, dataset='Nuscenes', use_vel=False, tracker=None):
+        self.tracker = 'PointTracker' if tracker is None else tracker
         self.hungarian = hungarian
         self.max_age = max_age
         self.min_hits = min_hits
@@ -192,13 +191,7 @@ class PubTracker(object):
         self.score_update = score_update
         self.det_th = detection_th  # detection threshold
         self.del_th = deletion_th  # deletion threshold
-        self.use_vel = False
-
-        if score_update == 'nn':
-            self.loaded_model = torch.load(model_path)
-            self.loaded_model.eval()
-        else:
-            self.loaded_model = None
+        self.use_vel = use_vel
 
         print("Use hungarian: {}".format(hungarian))
 
@@ -387,12 +380,17 @@ class PubTracker(object):
                     track['active'] += 1
                 else:
                     track['active'] = 0
-                    
+
                 ct = track['ct']
                 if 'tracking' in track:
                     offset = track['tracking'] * -1  # move forward
                     track['ct'] = ct + offset
                     track['translation'][:2] = track['ct']
+                elif 'KF' in track:
+                    track['translation'][0] = track['KF'].x[0]
+                    track['translation'][1] = track['KF'].x[1]
+                    track['velocity'][0] = track['KF'].x[2]
+                    track['velocity'][1] = track['KF'].x[3]
                 ret.append(track)
 
         self.tracks = ret
