@@ -2,7 +2,7 @@
 This task is based on tracking by detection method. We already have detection results (Bounding boxes) from detector. Our goal is to develope a good tracking algorithm.
 ### Date: 12/8 ~ 12/29
 
-## PART1 Data preparation
+## Data preparation
 - **Detection result** and **frames meta data** from [**google drive**](https://drive.google.com/drive/folders/13jmwcS2qu89QftSmrWmGpgQu20gF8YPl?usp=share_link).
 - If you want to **evaluate** and **visualize**, you will need to download **nuscenes trainval dataset** from [**Nuscenes website**](https://www.nuscenes.org/nuscenes#download).
 - The folder structure should be organized as follows before processing.
@@ -20,7 +20,7 @@ nusc_tracking
 │   │   ├── v1.0-trainval
 ```
 
-## PART2 Environment setup
+## Environment setup
 **First** of all, cd to your workspace and,
 ```bash!
 git clone https://github.com/derekray311511/nusc_tracking.git  
@@ -43,13 +43,13 @@ ln -fsv /data data
 ```
 Put the `detection_result.josn` and `frames_meta.json` (download from PART1) into your `data` folder
 
-## PART3 Tracking and Evaluation
+## Tracking and Evaluation
 ```bash!
 # Arguments can be set in track_template.sh
 bash tools/track_template.sh
 ```
 
-## PART4 Visualization
+## Visualization
 Need to download dataset from `nuscenes trainval dataset` from [**Nuscenes website**](https://www.nuscenes.org/nuscenes#download).
 We use **ros** to **visualize** our tracking results.
 ```bash!
