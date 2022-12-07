@@ -1,3 +1,6 @@
+your_data_path='/data/Nuscenes/CBMOT/data'
+your_workspace_path='/data/Nuscenes/CBMOT_update'
+
 xhost +local:
 
 docker run \
@@ -9,7 +12,7 @@ docker run \
 --rm \
 --name tracking \
 -e GRANT_SUDO=yes \
--v /data/Nuscenes/CBMOT/data:/data \
--v /data/Nuscenes/CBMOT_update:/home/Student/Tracking \
+-v $your_data_path:/data \
+-v $your_workspace_path:/home/Student/Tracking \
 tracking \
 bash
