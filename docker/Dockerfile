@@ -81,4 +81,5 @@ RUN pip install rospkg
 
 # Change to user mode
 USER $USERNAME
-RUN source /opt/ros/noetic/setup.bash
+RUN echo "source /opt/ros/noetic/setup.bash" > ~/.bashrc
+WORKDIR /home/Student/Tracking
