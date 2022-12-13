@@ -22,6 +22,7 @@ import json
 import argparse
 import sys
 import tf
+import time
 
 GT_CATEGORIES = [
     'vehicle.car', 'vehicle.motorcycle', 'vehicle.bicycle', 'vehicle.trailer',
@@ -318,11 +319,13 @@ class dataset:
                 if bbox['tracking_score'] < th: continue
                 id = bbox['tracking_id']
                 name = bbox['tracking_name']
-                new_boxes.append([x, y, z, dx, dy, dz, yaw, vx, vy, id, name])
+                score = bbox['tracking_score']
+                new_boxes.append([x, y, z, dx, dy, dz, yaw, vx, vy, id, name, score])
             else:
                 if bbox['detection_score'] < th: continue
                 name = bbox['detection_name']
-                new_boxes.append([x, y, z, dx, dy, dz, yaw, vx, vy, name])
+                score = bbox['detection_score']
+                new_boxes.append([x, y, z, dx, dy, dz, yaw, vx, vy, name, score])
         return new_boxes
 
     def get_gt_bbox(self, token):
@@ -365,8 +368,9 @@ class pub_data:
         self.det_pub = rospy.Publisher("detection", MarkerArray, queue_size=10)
         self.trk_pub = rospy.Publisher("tracking", MarkerArray, queue_size=10)
         self.gt_pub = rospy.Publisher("groundtruth", MarkerArray, queue_size=10)
-        self.marker_array = MarkerArray()
-        self.gt_marker_array = MarkerArray()
+        self.trk_markerArray = MarkerArray()
+        self.det_markerArray = MarkerArray()
+        self.gt_markerArray = MarkerArray()
 
     def pub_pc(self, point_cloud, name='lidar'):
         header = Header()
@@ -383,9 +387,9 @@ class pub_data:
         ego_pose = nusc_data.get('ego_pose', LIDAR_record['ego_pose_token'])
         self.br.sendTransform(ego_pose['translation'], q_to_xyzw(ego_pose['rotation']), rospy.Time.now(), 'ego_pose', 'world')
 
-    def pub_bboxes(self, bboxes, namespace='detection', show_id=True, show_vel=True):
+    def pub_bboxes(self, bboxes, namespace='detection', show_id=True, show_vel=True, show_score=True, id_color=False):
         if namespace == 'detection':
-            color = np.array([66, 135, 245]) / 255.0
+            color = np.array([66, 135, 245]) / 255.0; id_color = False
         elif namespace == 'track':
             color = np.array([237, 185, 52]) / 255.0
         elif namespace == 'gt':
@@ -404,14 +408,16 @@ class pub_data:
                 sub = 0.5   # Subtract the bbox size for visualization
                 corners = get_3d_box((x, y, z), (l-sub, w-sub, h-sub), yaw)
                 name = bbox[9]
-                bbox = [corners, center, velocity, name]
+                score = bbox[10]
+                bbox = [corners, center, velocity, name, score]
             if namespace == 'track':
                 corners = get_3d_box((x, y, z), (l, w, h), yaw)
                 name = bbox[10]
                 id = bbox[9]
-                bbox = [corners, center, velocity, name, id]
+                score = bbox[11]
+                bbox = [corners, center, velocity, name, id, score]
             bboxes_corners.append(bbox)
-        self.draw_bboxes(bboxes_corners, color, namespace, show_id, show_vel)
+        self.draw_bboxes(bboxes_corners, color, namespace, show_id, show_vel, show_score, id_color)
 
     def pub_cam(self, imgs):
         img_list = []
@@ -425,7 +431,6 @@ class pub_data:
         self.back_cam_pub.publish(bridge.cv2_to_imgmsg(img_back, "bgr8"))
 
     def draw_cube(self, bboxes, RGBcolor, namespace='gt', show_id=False, show_vel=False):
-        self.clear_markers(self.gt_marker_array.markers)
 
         for i in range(len(bboxes)):
             q = get_quaternion_from_euler(0, 0, bboxes[i][6])
@@ -455,15 +460,26 @@ class pub_data:
             marker.color.b = RGBcolor[2]
             marker.color.a = 0.4
 
-            self.gt_marker_array.markers.append(marker)
+            self.gt_markerArray.markers.append(marker)
         
-        self.gt_pub.publish(self.gt_marker_array)
+        self.gt_pub.publish(self.gt_markerArray)
 
-    def draw_bboxes(self, bboxes, RGBcolor, namespace='detection', show_id=True, show_vel=True):
-        self.clear_markers(self.marker_array.markers)
+    def draw_bboxes(
+        self, 
+        bboxes, 
+        RGBcolor, 
+        namespace='detection', 
+        show_id=True, 
+        show_vel=True, 
+        show_score=True,
+        id_color=False,
+        ):
+        duration = 0
 
         lines = [[0, 1], [1, 2], [2, 3], [3, 0], [4, 5], [5, 6],
          [6, 7], [7, 4], [0, 4], [1, 5], [2, 6], [3, 7]]
+
+        base_color = deepcopy(RGBcolor)
 
         for obid in range(len(bboxes)):
             ob = bboxes[obid][0]
@@ -471,7 +487,18 @@ class pub_data:
             velocity = bboxes[obid][2]
             name = bboxes[obid][3]
             if namespace == 'track':
+                markerArray = self.trk_markerArray
                 id = bboxes[obid][4]
+                score = bboxes[obid][5]
+            elif namespace =='detection':
+                markerArray = self.det_markerArray
+                score = bboxes[obid][4]
+
+            # Draw with id color
+            if id_color:
+                RGBcolor[0] = ((base_color[0] * 255 + int(id) * 15) % 155 + 100) / 255.0    # 100~255
+                RGBcolor[1] = ((base_color[1] * 255 - int(id) * 20) % 155 + 100) / 255.0    # 100~255
+                RGBcolor[2] = 100 / 255.0
 
             # Draw bbox lines
             bbox_points_set = []
@@ -483,10 +510,10 @@ class pub_data:
             marker.header.stamp = rospy.Time.now()
             marker.ns = 'bbox'
 
-            marker.id = obid*2
+            marker.id = obid
             marker.action = Marker.ADD
             marker.type = Marker.LINE_LIST
-            marker.lifetime = rospy.Duration(0)
+            marker.lifetime = rospy.Duration(duration)
 
             marker.color.r = RGBcolor[0]
             marker.color.g = RGBcolor[1]
@@ -499,7 +526,7 @@ class pub_data:
                 marker.points.append(bbox_points_set[line[0]])
                 marker.points.append(bbox_points_set[line[1]])
 
-            self.marker_array.markers.append(marker)
+            markerArray.markers.append(marker)
 
             # Draw bbox id if exist
             if namespace == 'track' and show_id:
@@ -508,14 +535,14 @@ class pub_data:
                 marker.header.stamp = rospy.Time.now()
                 marker.ns = 'id'
 
-                marker.id = int(id)
+                marker.id = obid
                 marker.action = Marker.ADD
                 marker.type = Marker.TEXT_VIEW_FACING
-                marker.lifetime = rospy.Duration(0)
+                marker.lifetime = rospy.Duration(duration)
 
-                marker.color.r = RGBcolor[0]
-                marker.color.g = RGBcolor[1]
-                marker.color.b = RGBcolor[2]
+                marker.color.r = base_color[0]
+                marker.color.g = base_color[1]
+                marker.color.b = base_color[2]
                 marker.color.a = 1.0
                 marker.scale.x = 2.0
                 marker.scale.y = 2.0
@@ -525,7 +552,33 @@ class pub_data:
                 marker.pose.position.z = center[2]
                 marker.text = id
 
-                self.marker_array.markers.append(marker)
+                markerArray.markers.append(marker)
+
+            # Draw bbox score
+            if show_score:
+                marker = Marker()
+                marker.header.frame_id = 'world'
+                marker.header.stamp = rospy.Time.now()
+                marker.ns = 'score'
+
+                marker.id = obid
+                marker.action = Marker.ADD
+                marker.type = Marker.TEXT_VIEW_FACING
+                marker.lifetime = rospy.Duration(duration)
+
+                marker.color.r = base_color[0]
+                marker.color.g = base_color[1]
+                marker.color.b = 200 / 255.0
+                marker.color.a = 1.0
+                marker.scale.x = 2.0
+                marker.scale.y = 2.0
+                marker.scale.z = 2.0
+                marker.pose.position.x = center[0] + 1.0
+                marker.pose.position.y = center[1] + 1.0
+                marker.pose.position.z = center[2] + 2.0
+                marker.text = str(np.round(score, 2))
+
+                markerArray.markers.append(marker)
 
             # Draw bbox velcoity
             if show_vel:
@@ -539,7 +592,7 @@ class pub_data:
                 marker.id = obid
                 marker.action = Marker.ADD
                 marker.type = Marker.ARROW
-                marker.lifetime = rospy.Duration(0)
+                marker.lifetime = rospy.Duration(duration)
 
                 point = Point()
                 point.x = center[0]
@@ -559,16 +612,25 @@ class pub_data:
                 marker.scale.x = 0.4
                 marker.scale.y = 0.8
 
-                self.marker_array.markers.append(marker)
+                markerArray.markers.append(marker)
 
         if namespace == 'detection':
-            self.det_pub.publish(self.marker_array)
-        else:
-            self.trk_pub.publish(self.marker_array)
+            self.det_pub.publish(markerArray)
+        elif namespace == 'track':
+            self.trk_pub.publish(self.trk_markerArray)
 
-    def clear_markers(self, markers):
-        for marker in markers:
-            marker.color.a = 0
+    def clear_markers(self):
+        markerArray_list = [self.det_markerArray, self.trk_markerArray, self.gt_markerArray]
+        for markerArray in markerArray_list:
+            for marker in markerArray.markers:
+                marker.color.a = 0
+        # Clear markers in rviz
+        self.gt_pub.publish(self.gt_markerArray)
+        self.det_pub.publish(self.det_markerArray)
+        self.trk_pub.publish(self.trk_markerArray)
+        # Clear markers in backend
+        for markerArray in markerArray_list:
+            markerArray.markers.clear()
 
 def parser():
     parser = argparse.ArgumentParser()
@@ -578,8 +640,9 @@ def parser():
     parser.add_argument("--track_res_path", type=str, default='/home/Student/Tracking/data/track_results/tracking_result.json')
     parser.add_argument("--frames_meta_path", type=str, default='/home/Student/Tracking/data/frames_meta.json')
     parser.add_argument("--vis_gt", type=int, default=1)
-    parser.add_argument("--pub_rate", type=float, default=2)
+    parser.add_argument("--pub_rate", type=float, default=4)
     parser.add_argument("--vis_th", type=float, default=0)
+    parser.add_argument("--init_idx", type=int, default=0)
     return parser
 
 def main(parser):
@@ -609,7 +672,7 @@ def main(parser):
 
     # Visualization
     frames = data.frames
-    idx = 0
+    idx = args.init_idx
     max_idx = len(frames) - 1
 
     auto_playing_mode = True
@@ -640,13 +703,14 @@ def main(parser):
         gt = data.get_gt_bbox(token)
 
         # Publish raw data and bounding boxes
+        publisher.clear_markers()
         publisher.pub_pc(lidar_pc, name='lidar')
         publisher.pub_pc(radar_pc, name='radar')
         publisher.broadcast(data.nusc, token)
         publisher.pub_cam(cam_imgs)
-        publisher.pub_bboxes(det, namespace='detection', show_id=False, show_vel=False)
-        publisher.pub_bboxes(trk, namespace='track', show_id=True, show_vel=True)
-        publisher.pub_bboxes(gt, namespace='gt', show_id=False, show_vel=False)
+        publisher.pub_bboxes(det, namespace='detection', show_id=False, show_vel=False, show_score=False, id_color=False)
+        publisher.pub_bboxes(trk, namespace='track', show_id=True, show_vel=True, show_score=False, id_color=False)
+        publisher.pub_bboxes(gt, namespace='gt', show_id=False, show_vel=False, show_score=False, id_color=False)
 
         if init:
             cv2.waitKey(0)
