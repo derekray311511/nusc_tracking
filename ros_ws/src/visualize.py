@@ -675,7 +675,7 @@ def main(parser):
     idx = args.init_idx
     max_idx = len(frames) - 1
 
-    auto_playing_mode = True
+    auto_playing_mode = False
     init = True
 
     while (1):
@@ -709,31 +709,37 @@ def main(parser):
         publisher.broadcast(data.nusc, token)
         publisher.pub_cam(cam_imgs)
         publisher.pub_bboxes(det, namespace='detection', show_id=False, show_vel=False, show_score=False, id_color=False)
-        publisher.pub_bboxes(trk, namespace='track', show_id=True, show_vel=True, show_score=False, id_color=False)
+        publisher.pub_bboxes(trk, namespace='track', show_id=False, show_vel=True, show_score=True, id_color=True)
         publisher.pub_bboxes(gt, namespace='gt', show_id=False, show_vel=False, show_score=False, id_color=False)
 
         if init:
-            cv2.waitKey(0)
+            cv2.createTrackbar('Frame', 'keys', 0, max_idx, lambda x: None)
+            cv2.setTrackbarPos('Frame', 'keys', idx)
+            cv2.imshow('keys', img)
+            # cv2.waitKey(0)
             init = False
         else:
+            cv2.setTrackbarPos('Frame', 'keys', idx)
             if auto_playing_mode:
                 idx += 1
                 key = cv2.waitKey(int(duration * 1000))
-                if key == 13 or key == 27 or idx > max_idx: # enter or esc
+                if key == 27 or idx > max_idx: # esc
                     break
                 if key == 32: # space
                     auto_playing_mode = not auto_playing_mode
             else:
                 key = cv2.waitKey(0)
             
-                if key == 100: # d
+                if key == 100 or key == 83: # d
                     idx += 1
-                if key == 97: # a
+                if key == 97 or key == 81: # a
                     idx -= 1
                 if key > max_idx:
                     idx -= 1
                     print("Out of length!")
-                if key == 13 or key == 27: # enter or esc
+                if key == 13:
+                    idx = cv2.getTrackbarPos('Frame','keys')
+                if key == 27: # esc
                     break
                 if idx < 0:
                     idx = 0
