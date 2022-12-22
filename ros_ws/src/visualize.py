@@ -1,6 +1,7 @@
 from math import atan2, sqrt
 from nuscenes.nuscenes import NuScenes
 from nuscenes.utils.data_classes import RadarPointCloud
+from nuscenes.utils.data_classes import Box
 from email.header import Header
 from sensor_msgs.msg import PointCloud2, Image
 from geometry_msgs.msg import Point
@@ -358,6 +359,125 @@ class dataset:
             imgs.update({sensor: cv2.imread(filename)})
         return imgs
 
+    def world2cam4f(self, token, cam_name):
+        sample_record = self.nusc.get('sample', token)
+        sd_record = self.nusc.get('sample_data', sample_record['data'][cam_name])
+        pose_record = self.nusc.get('ego_pose', sd_record['ego_pose_token'])
+        cs_record = self.nusc.get('calibrated_sensor', sd_record['calibrated_sensor_token'])
+        camera_intrinsic = np.array(cs_record['camera_intrinsic'])
+        viewpad = np.eye(4)
+        viewpad[:camera_intrinsic.shape[0], :camera_intrinsic.shape[1]] = camera_intrinsic
+
+        # world to ego
+        world2car = self.get_4f_transform(pose_record, inverse=True)
+        # ego to camera
+        car2cam = self.get_4f_transform(cs_record, inverse=True)
+        # camera to image
+        cam2img = viewpad
+        # world to image
+        world2img = cam2img @ car2cam @ world2car
+        return world2img
+
+    def cam_with_box(self, token, data_type='track', th=0.1, id_color=True):
+
+        if data_type == 'detection':
+            bboxes = deepcopy(self.detections[token])
+            base_color = np.array([66, 135, 245]) / 255.0; id_color = False
+        elif data_type == 'track':
+            bboxes = deepcopy(self.tracklets[token])
+            base_color = np.array([237, 185, 52]) / 255.0
+        else:
+            sys.exit(f"Wrong data type {data_type}!")
+        
+        color = deepcopy(base_color)
+        bboxes_corners = []
+        ids = []
+        bboxes = self.get_bbox_result(token, data_type, th)
+        for bbox in bboxes:
+            x, y, z, w, l, h, yaw, vx, vy = bbox[:9]
+            # recentering for visualization
+            corners = get_3d_box((x, y, z+h/2), (l, w, h), yaw)
+            bboxes_corners.append(corners)
+            if id_color:
+                ids.append(int(bbox[9]))
+        ids = np.array(ids, dtype=np.int)
+        bboxes_corners = np.array(bboxes_corners)
+
+        sample_record = self.nusc.get('sample', token)
+        name_list = [
+            'CAM_FRONT_LEFT', 'CAM_FRONT', 'CAM_FRONT_RIGHT', 
+            'CAM_BACK_RIGHT', 'CAM_BACK', 'CAM_BACK_LEFT'
+        ]
+        imgs = {}
+        for sensor in name_list:
+            sd_record = self.nusc.get('sample_data', sample_record['data'][sensor])
+            filename = sd_record['filename']
+            filename = os.path.join(self.dataroot, filename)
+            img = cv2.imread(filename)
+
+            transform = self.world2cam4f(token, sensor)
+
+            num_bboxes = bboxes_corners.shape[0]
+            coords = np.concatenate(
+                [bboxes_corners.reshape(-1, 3), np.ones((num_bboxes * 8, 1))], axis=-1
+            )
+            transform = deepcopy(transform).reshape(4, 4)
+            coords = coords @ transform.T
+            coords = coords.reshape(-1, 8, 4)
+
+            indices = np.all(coords[..., 2] > 0, axis=1)
+            coords = coords[indices]
+            # labels = labels[indices]
+            obj_ids = ids[indices]
+
+            indices = np.argsort(-np.min(coords[..., 2], axis=1))
+            coords = coords[indices]
+            # labels = labels[indices]
+            obj_ids = obj_ids[indices]
+
+            coords = coords.reshape(-1, 4)
+            coords[:, 2] = np.clip(coords[:, 2], a_min=1e-5, a_max=1e5)
+            coords[:, 0] /= coords[:, 2]
+            coords[:, 1] /= coords[:, 2]
+
+            coords = coords[..., :2].reshape(-1, 8, 2)
+
+            for index in range(coords.shape[0]):
+                # Set colors (BGR)
+                if id_color:
+                    id = obj_ids[index]
+                    color[2] = int((base_color[0] * 255 + (id) * 15) % 155 + 100)   # R 100~255
+                    color[1] = int((base_color[1] * 255 - (id) * 20) % 155 + 100)   # G 100~255
+                    color[0] = 100                                                  # B 100
+                else:
+                    color = base_color
+
+                for start, end in [
+                    (0, 1),
+                    (0, 3),
+                    (0, 4),
+                    (1, 2),
+                    (1, 5),
+                    (3, 2),
+                    (3, 7),
+                    (4, 5),
+                    (4, 7),
+                    (2, 6),
+                    (5, 6),
+                    (6, 7),
+                ]:
+                    cv2.line(
+                        img,
+                        coords[index, start].astype(np.int),
+                        coords[index, end].astype(np.int),
+                        color=color,
+                        thickness=4,
+                        lineType=cv2.LINE_AA,
+                    )
+            imgs.update({sensor: img})
+        return imgs
+
+
 class pub_data:
     def __init__(self):
         self.br = tf.TransformBroadcaster()
@@ -642,6 +762,7 @@ def parser():
     parser.add_argument("--vis_gt", type=int, default=1)
     parser.add_argument("--pub_rate", type=float, default=4)
     parser.add_argument("--vis_th", type=float, default=0)
+    parser.add_argument("--vis_img_bbox", type=int, default=1)
     parser.add_argument("--init_idx", type=int, default=0)
     return parser
 
@@ -697,10 +818,13 @@ def main(parser):
         # Load raw data and bounding boxes
         lidar_pc = data.read_lidar_pc(token)
         radar_pc = data.read_radar_pc(token)[:, :3]
-        cam_imgs = data.get_cam_imgs(token)
         det = data.get_bbox_result(token, data_type='detection', th=args.vis_th)
         trk = data.get_bbox_result(token, data_type='track', th=args.vis_th)
         gt = data.get_gt_bbox(token)
+        if args.vis_img_bbox:
+            cam_imgs = data.cam_with_box(token, data_type='track', th=args.vis_th, id_color=True)
+        else:
+            cam_imgs = data.get_cam_imgs(token)
 
         # Publish raw data and bounding boxes
         publisher.clear_markers()
@@ -738,7 +862,7 @@ def main(parser):
                     idx -= 1
                     print("Out of length!")
                 if key == 13:
-                    idx = cv2.getTrackbarPos('Frame','keys')
+                    idx = cv2.getTrackbarPos('Frame', 'keys')
                 if key == 27: # esc
                     break
                 if idx < 0:
