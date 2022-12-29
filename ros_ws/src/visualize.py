@@ -296,11 +296,13 @@ class dataset:
     def get_bbox_result(self, token, data_type='detection', th=0):
         """Get tracking result for bounding box on specific sample token.
 
-        [x, y, z, dx, dy, dz, heading, vx, vy, id, name] in each box.
+        data_type should be ['detection', 'track']
+
         (x, y, z) is the box center.  
         (vx, vy) is velocity based on world coordinates.
 
-        Return: N * [x y z dx dy dz heading, vx, vy, id, name]
+        Return: N * [x y z dx dy dz heading, vx, vy, id, name, score] or 
+        Return: N * [x y z dx dy dz heading, vx, vy, name, score]
         """
         if data_type == 'detection':
             bboxes = self.detections[token]
@@ -347,6 +349,10 @@ class dataset:
         return bboxes
 
     def get_cam_imgs(self, token):
+        '''Get nusc raw camera images
+
+        Return images dictionary by sensor name
+        '''
         name_list = [
             'CAM_FRONT_LEFT', 'CAM_FRONT', 'CAM_FRONT_RIGHT', 
             'CAM_BACK_RIGHT', 'CAM_BACK', 'CAM_BACK_LEFT'
@@ -379,6 +385,10 @@ class dataset:
         return world2img
 
     def cam_with_box(self, token, data_type='track', th=0.1, id_color=True):
+        '''Get nusc camera images with bboxes
+
+        Return images dictionary by sensor name
+        '''
 
         if data_type == 'detection':
             bboxes = deepcopy(self.detections[token])
@@ -601,6 +611,10 @@ class pub_data:
 
         base_color = deepcopy(RGBcolor)
 
+        # Prevent no bbox markerArray error
+        if len(bboxes) == 0:
+            markerArray = []
+            
         for obid in range(len(bboxes)):
             ob = bboxes[obid][0]
             center = bboxes[obid][1]
