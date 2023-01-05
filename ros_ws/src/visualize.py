@@ -1,4 +1,3 @@
-from math import atan2, sqrt
 from nuscenes.nuscenes import NuScenes
 from nuscenes.utils.data_classes import RadarPointCloud
 from nuscenes.utils.data_classes import Box
@@ -11,6 +10,7 @@ from nuscenes.utils import splits
 from nuscenes.utils.geometry_utils import transform_matrix
 from scipy.spatial.transform import Rotation as R
 from pyquaternion import Quaternion
+from collections import deque
 from copy import deepcopy
 
 import sensor_msgs.point_cloud2 as pcl2
@@ -32,6 +32,30 @@ GT_CATEGORIES = [
     'human.pedestrian.stroller', 'human.pedestrian.stroller', 'human.pedestrian.personal_mobility', 
     'human.pedestrian.police_officer', 'human.pedestrian.construction_worker', 
 ]
+
+def stack_pointclouds(read_data_func, frames, idx, stack_num):
+    pcs = []
+    for i in range(stack_num):
+        if idx - i < 0:
+            break
+        pcs.append(read_data_func(frames[idx-i]['token']))
+        if frames[idx-i]['first']:
+            break
+    stacked_pc = np.concatenate(pcs, axis=0)
+    return stacked_pc
+
+def stack_bboxes(read_data_func, frames, idx, stack_num, data_type, th):
+    '''
+    Order: [idx, idx-1, idx-2,...]
+    '''
+    frames_bboxes = []
+    for i in range(stack_num):
+        if idx - i < 0:
+            break
+        frames_bboxes.append(read_data_func(frames[idx-i]['token'], data_type, th))
+        if frames[idx-i]['first']:
+            break
+    return frames_bboxes
 
 def q_to_xyzw(Q):
     '''
@@ -156,6 +180,52 @@ def get_3d_box(center, box_size, heading_angle):
     corners_3d[2, :] = corners_3d[2, :] + center[2]
     corners_3d = np.transpose(corners_3d)
     return corners_3d
+
+''' =============== This part is usage for Trajectories =============== '''
+class Object():
+    def __init__(self, center, velocity):
+        self.locations = deque(maxlen = 16)
+        self.locations.appendleft(center)
+        self.velocity = velocity
+
+    def update(self, center, velocity):
+        if center is not None:
+            self.locations.appendleft(center)
+            self.velocity = velocity
+
+class Trajectory:
+    def __init__(self, frames_centers) -> None:
+        self.centers = {}
+        self.vels = {}
+        self.trackers = {}
+        for center_list in reversed(frames_centers):
+            self.current_exist_ids = []
+            self.save_path(center_list)
+
+    def save_path(self, center_list):
+        '''Save center list of objects
+
+        Input: N * [x y z dx dy dz heading, vx, vy, id, name, score]
+        Return: N * objects' paths
+        '''
+        for obj in center_list:
+            id = obj[9]
+            self.centers[id] = obj[:2]
+            self.vels[id] = obj[7:9]
+            self.current_exist_ids.append(id)
+
+        for track_id in self.centers:
+            if track_id in self.trackers:  
+                self.trackers[track_id].update(self.centers[track_id], self.vels[track_id])
+            else:   
+                self.trackers[track_id] = Object(self.centers[track_id], self.vels[track_id])
+
+        for track_id in self.trackers:    
+            if track_id not in self.centers:
+                self.trackers[track_id].update(None, None)
+
+        return self.trackers
+''' =================================================================== '''
 
 class show_keys:
     def __init__(self) -> None:
@@ -498,9 +568,11 @@ class pub_data:
         self.det_pub = rospy.Publisher("detection", MarkerArray, queue_size=10)
         self.trk_pub = rospy.Publisher("tracking", MarkerArray, queue_size=10)
         self.gt_pub = rospy.Publisher("groundtruth", MarkerArray, queue_size=10)
+        self.traj_pub = rospy.Publisher('trajectory', MarkerArray, queue_size=10)
         self.trk_markerArray = MarkerArray()
         self.det_markerArray = MarkerArray()
         self.gt_markerArray = MarkerArray()
+        self.traj_markerArray = MarkerArray()
 
     def pub_pc(self, point_cloud, name='lidar'):
         header = Header()
@@ -751,17 +823,52 @@ class pub_data:
         if namespace == 'detection':
             self.det_pub.publish(markerArray)
         elif namespace == 'track':
-            self.trk_pub.publish(self.trk_markerArray)
+            self.trk_pub.publish(markerArray)
+
+    def pub_trajectory(self, traj, id_color=False):
+        current_exist_ids = traj.current_exist_ids
+        trackers = traj.trackers
+        base_color = np.array([237, 185, 52]) / 255.0   # Tracker base color
+        RGBcolor = deepcopy(base_color)
+        duration = 0
+        for track_id in current_exist_ids:
+            if len(trackers[track_id].locations) <= 1:
+                continue
+            # Draw with id color
+            if id_color:
+                RGBcolor[0] = ((base_color[0] * 255 + int(track_id) * 15) % 155 + 100) / 255.0    # 100~255
+                RGBcolor[1] = ((base_color[1] * 255 - int(track_id) * 20) % 155 + 100) / 255.0    # 100~255
+                RGBcolor[2] = 100 / 255.0
+            marker = Marker()
+            marker.header.frame_id = "world"
+            marker.header.stamp = rospy.Time.now()
+            marker.ns = 'trajectory'
+            marker.id = int(track_id)
+            marker.action = Marker.ADD
+            marker.lifetime = rospy.Duration(duration)
+            marker.type = Marker.LINE_STRIP
+            marker.pose.orientation.w = 1.0
+            marker.color.r = RGBcolor[0]
+            marker.color.g = RGBcolor[1]
+            marker.color.b = RGBcolor[2]
+            marker.color.a = 0.6
+            marker.scale.x = 0.2
+            marker.points.clear()
+            marker.points = []
+            for p in trackers[track_id].locations:
+                marker.points.append(Point(p[0], p[1], 0))
+            self.traj_markerArray.markers.append(marker)
+        self.traj_pub.publish(self.traj_markerArray)
 
     def clear_markers(self):
-        markerArray_list = [self.det_markerArray, self.trk_markerArray, self.gt_markerArray]
+        markerArray_list = [self.gt_markerArray, self.det_markerArray, self.trk_markerArray, self.traj_markerArray]
+        publisher_list = [self.gt_pub, self.det_pub, self.trk_pub, self.traj_pub]
         for markerArray in markerArray_list:
             for marker in markerArray.markers:
                 marker.color.a = 0
         # Clear markers in rviz
-        self.gt_pub.publish(self.gt_markerArray)
-        self.det_pub.publish(self.det_markerArray)
-        self.trk_pub.publish(self.trk_markerArray)
+        for (pub, markerArray) in zip(publisher_list, markerArray_list):
+            pub.publish(markerArray)
         # Clear markers in backend
         for markerArray in markerArray_list:
             markerArray.markers.clear()
@@ -778,6 +885,11 @@ def parser():
     parser.add_argument("--vis_th", type=float, default=0)
     parser.add_argument("--vis_img_bbox", type=int, default=1)
     parser.add_argument("--init_idx", type=int, default=0)
+
+    parser.add_argument("--lidar_stack", type=int, default=2)
+    parser.add_argument("--radar_stack", type=int, default=1)
+    parser.add_argument("--det_bbox_stack", type=int, default=1)
+    parser.add_argument("--trk_bbox_stack", type=int, default=5)
     return parser
 
 def main(parser):
@@ -819,42 +931,10 @@ def main(parser):
             rospy.loginfo('shutdown')
             break
 
-        token = frames[idx]['token']
-        timestamp = frames[idx]['timestamp']
-        info = '{}-{}'.format(timestamp, token)
-
-        img = np.zeros((600, 600, 3))
-        img = key_shower.add_text(img, info)
-        if auto_playing_mode:
-            img = key_shower.add_rect(img)
-        cv2.imshow('keys', img)
-
-        # Load raw data and bounding boxes
-        lidar_pc = data.read_lidar_pc(token)
-        radar_pc = data.read_radar_pc(token)[:, :3]
-        det = data.get_bbox_result(token, data_type='detection', th=args.vis_th)
-        trk = data.get_bbox_result(token, data_type='track', th=args.vis_th)
-        gt = data.get_gt_bbox(token)
-        if args.vis_img_bbox:
-            cam_imgs = data.cam_with_box(token, data_type='track', th=args.vis_th, id_color=True)
-        else:
-            cam_imgs = data.get_cam_imgs(token)
-
-        # Publish raw data and bounding boxes
-        publisher.clear_markers()
-        publisher.pub_pc(lidar_pc, name='lidar')
-        publisher.pub_pc(radar_pc, name='radar')
-        publisher.broadcast(data.nusc, token)
-        publisher.pub_cam(cam_imgs)
-        publisher.pub_bboxes(det, namespace='detection', show_id=False, show_vel=False, show_score=False, id_color=False)
-        publisher.pub_bboxes(trk, namespace='track', show_id=False, show_vel=True, show_score=True, id_color=True)
-        publisher.pub_bboxes(gt, namespace='gt', show_id=False, show_vel=False, show_score=False, id_color=False)
-
         if init:
+            cv2.namedWindow("keys", cv2.WINDOW_AUTOSIZE)
             cv2.createTrackbar('Frame', 'keys', 0, max_idx, lambda x: None)
             cv2.setTrackbarPos('Frame', 'keys', idx)
-            cv2.imshow('keys', img)
-            # cv2.waitKey(0)
             init = False
         else:
             cv2.setTrackbarPos('Frame', 'keys', idx)
@@ -883,6 +963,39 @@ def main(parser):
                     idx = 0
                 if key == 32: # space
                     auto_playing_mode = not auto_playing_mode
+
+        token = frames[idx]['token']
+        timestamp = frames[idx]['timestamp']
+        info = '{}-{}'.format(timestamp, token)
+
+        ctl_img = np.zeros((600, 600, 3))
+        ctl_img = key_shower.add_text(ctl_img, info)
+        if auto_playing_mode:
+            ctl_img = key_shower.add_rect(ctl_img)
+        cv2.imshow('keys', ctl_img)
+
+        # Load raw data and bounding boxes
+        lidar_pc = stack_pointclouds(data.read_lidar_pc, frames, idx, args.lidar_stack)
+        radar_pc = stack_pointclouds(data.read_radar_pc, frames, idx, args.radar_stack)[:, :3]
+        frames_det = stack_bboxes(data.get_bbox_result, frames, idx, args.det_bbox_stack, data_type='detection', th=args.vis_th)
+        frames_trk = stack_bboxes(data.get_bbox_result, frames, idx, args.trk_bbox_stack, data_type='track', th=args.vis_th)
+        gt = data.get_gt_bbox(token)
+        trajectory = Trajectory(frames_trk) # args.trk_bbox_stack number
+        if args.vis_img_bbox:
+            cam_imgs = data.cam_with_box(token, data_type='track', th=args.vis_th, id_color=True)
+        else:
+            cam_imgs = data.get_cam_imgs(token)
+
+        # Publish raw data and bounding boxes
+        publisher.clear_markers()
+        publisher.pub_pc(lidar_pc, name='lidar')
+        publisher.pub_pc(radar_pc, name='radar')
+        publisher.broadcast(data.nusc, token)
+        publisher.pub_cam(cam_imgs)
+        publisher.pub_bboxes(gt, namespace='gt', show_id=False, show_vel=False, show_score=False, id_color=False)
+        publisher.pub_bboxes(frames_det[0], namespace='detection', show_id=False, show_vel=False, show_score=False, id_color=False)
+        publisher.pub_bboxes(frames_trk[0], namespace='track', show_id=False, show_vel=True, show_score=True, id_color=True)
+        publisher.pub_trajectory(trajectory, id_color=True)
 
     cv2.destroyAllWindows()
 
