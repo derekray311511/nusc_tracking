@@ -71,6 +71,12 @@ def stack_radar_trks(read_data_func, frames, idx, stack_num):
             break
     return frames_trks
 
+def mkdir_or_exist(dir_name, mode=0o777):
+    if dir_name == '':
+        return
+    dir_name = os.path.expanduser(dir_name)
+    os.makedirs(dir_name, mode=mode, exist_ok=True)
+
 def q_to_xyzw(Q):
     '''
     wxyz -> xyzw
@@ -297,7 +303,8 @@ class dataset:
         version='v1.0-trainval',
         split='val',
         detection_path='data//detection_result.json',
-        track_res_path='data/track_results/tracking_result.json', 
+        track1_res_path='data/track_results/tracking_result.json', 
+        track2_res_path=None, 
         frame_meta_path='data/frames_meta.json',
         radar_trk_path=None, 
     ):
@@ -309,24 +316,30 @@ class dataset:
             self.scene_names = splits.train
         else:
             sys.exit(f"split {split} not support yet.")
-        self.detections = self.load_detections(detection_path)['results']
-        self.tracklets = self.load_tracklets(track_res_path)['results']
-        self.frames = self.load_frames_meta(frame_meta_path)['frames']
+        self.detections = self.load_detections(detection_path)
+        self.tracklets1 = self.load_tracklets(track1_res_path)
+        self.tracklets2 = self.load_tracklets(track2_res_path)
+        self.frames = self.load_frames_meta(frame_meta_path)
         self.radar_trks = self.load_radar_trk(radar_trk_path)
+        self.imgs = {}
 
     def load_detections(self, path):
+        if path is None:
+            return None
         with open(path, 'rb') as f:
-            detections = json.load(f)
+            detections = json.load(f)['results']
         return detections
 
     def load_tracklets(self, path):
+        if path is None:
+            return None
         with open(path, 'rb') as f:
-            tracklets = json.load(f)
+            tracklets = json.load(f)['results']
         return tracklets
 
     def load_frames_meta(self, path):
         with open(path, 'rb') as f:
-            frames = json.load(f)
+            frames = json.load(f)['frames']
         return frames
 
     def load_radar_trk(self, path):
@@ -410,20 +423,26 @@ class dataset:
         Return: N * [x y z dx dy dz heading, vx, vy, name, score]
         """
         if data_type == 'detection':
-            bboxes = self.detections[token]
-        elif data_type == 'track':
-            bboxes = self.tracklets[token]
+            bboxes = self.detections[token] if self.detections is not None else []
+        elif data_type == 'track1':
+            bboxes = self.tracklets1[token] if self.tracklets1 is not None else []
+        elif data_type == 'track2':
+            bboxes = self.tracklets2[token] if self.tracklets2 is not None else []
         else:
             sys.exit(f"Wrong data type {data_type}!")
         
         new_boxes = []
         for bbox in bboxes:
             x, y, z = bbox['translation']
-            dx, dy, dz = bbox['size']
             vx, vy = bbox['velocity']
             Quaternion = q_to_xyzw(bbox['rotation'])
             roll, pitch, yaw = euler_from_quaternion(Quaternion)
-            if data_type == 'track':
+            if (self.tracklets2 is not None) and (self.tracklets1 is not None) and data_type == 'track1':
+                dx, dy, dz = bbox['size'][0]-0.5, bbox['size'][1]-0.5, bbox['size'][2]-0.5
+            else:
+                dx, dy, dz = bbox['size']
+
+            if data_type in ['track1', 'track2']:
                 if bbox['tracking_score'] < th: continue
                 id = bbox['tracking_id']
                 name = bbox['tracking_name']
@@ -457,6 +476,8 @@ class dataset:
         '''
         Return: N * [x, y, vx, vy, id]
         '''
+        if self.radar_trks is None:
+            return []
         points = []
         for point in self.radar_trks[token]:
             x, y = point['translation']
@@ -501,20 +522,23 @@ class dataset:
         world2img = cam2img @ car2cam @ world2car
         return world2img
 
-    def cam_with_box(self, token, data_type='track', th=0.1, id_color=True):
+    def cam_with_box(self, token, data_type='detection', th=0.1, id_color=True, RGB_color=None, prev_imgs=None):
         '''Get nusc camera images with bboxes
 
         Return images dictionary by sensor name
         '''
-
         if data_type == 'detection':
-            bboxes = deepcopy(self.detections[token])
             base_color = np.array([66, 135, 245]) / 255.0; id_color = False
-        elif data_type == 'track':
-            bboxes = deepcopy(self.tracklets[token])
-            base_color = np.array([237, 185, 52]) / 255.0
+        elif data_type == 'track1':
+            base_color = np.array([250, 185, 85]) / 255.0
+        elif data_type == 'track2':
+            base_color = np.array([55, 250, 143]) / 255.0
         else:
             sys.exit(f"Wrong data type {data_type}!")
+
+        if RGB_color is not None:
+            color = np.array(RGB_color, dtype=np.float)
+            base_color = np.clip(color, a_min=0, a_max=1)
         
         color = deepcopy(base_color)
         bboxes_corners = []
@@ -523,11 +547,13 @@ class dataset:
         for bbox in bboxes:
             x, y, z, w, l, h, yaw, vx, vy = bbox[:9]
             # recentering for visualization
-            corners = get_3d_box((x, y, z+h/2), (l, w, h), yaw)
+            z = z + h/2
+            corners = get_3d_box((x, y, z), (l, w, h), yaw)
             bboxes_corners.append(corners)
-            if id_color:
+            if data_type in ['track1', 'track2']:
                 ids.append(int(bbox[9]))
-        ids = np.array(ids, dtype=np.int)
+        if data_type in ['track1', 'track2']:
+            ids = np.array(ids, dtype=np.int)
         bboxes_corners = np.array(bboxes_corners)
 
         sample_record = self.nusc.get('sample', token)
@@ -535,12 +561,15 @@ class dataset:
             'CAM_FRONT_LEFT', 'CAM_FRONT', 'CAM_FRONT_RIGHT', 
             'CAM_BACK_RIGHT', 'CAM_BACK', 'CAM_BACK_LEFT'
         ]
-        imgs = {}
+        imgs = {} if prev_imgs is None else prev_imgs
         for sensor in name_list:
-            sd_record = self.nusc.get('sample_data', sample_record['data'][sensor])
-            filename = sd_record['filename']
-            filename = os.path.join(self.dataroot, filename)
-            img = cv2.imread(filename)
+            if prev_imgs is None:
+                sd_record = self.nusc.get('sample_data', sample_record['data'][sensor])
+                filename = sd_record['filename']
+                filename = os.path.join(self.dataroot, filename)
+                img = cv2.imread(filename)
+            else:
+                img = imgs[sensor]
 
             transform = self.world2cam4f(token, sensor)
 
@@ -555,12 +584,14 @@ class dataset:
             indices = np.all(coords[..., 2] > 0, axis=1)
             coords = coords[indices]
             # labels = labels[indices]
-            obj_ids = ids[indices]
+            if data_type in ['track1', 'track2']:
+                obj_ids = ids[indices]
 
             indices = np.argsort(-np.min(coords[..., 2], axis=1))
             coords = coords[indices]
             # labels = labels[indices]
-            obj_ids = obj_ids[indices]
+            if data_type in ['track1', 'track2']:
+                obj_ids = obj_ids[indices]
 
             coords = coords.reshape(-1, 4)
             coords[:, 2] = np.clip(coords[:, 2], a_min=1e-5, a_max=1e5)
@@ -577,7 +608,8 @@ class dataset:
                     color[1] = int((base_color[1] * 255 - (id) * 20) % 155 + 100)   # G 100~255
                     color[0] = 100                                                  # B 100
                 else:
-                    color = base_color
+                    color = (base_color * 255)
+                    color = [int(color[2]), int(color[1]), int(color[0])]  # RGB to BGR
 
                 for start, end in [
                     (0, 1),
@@ -638,17 +670,32 @@ class pub_data:
         ego_pose = nusc_data.get('ego_pose', LIDAR_record['ego_pose_token'])
         self.br.sendTransform(ego_pose['translation'], q_to_xyzw(ego_pose['rotation']), rospy.Time.now(), 'ego_pose', 'world')
 
-    def pub_bboxes(self, bboxes, namespace='detection', show_id=True, show_vel=True, show_score=True, id_color=False):
+    def pub_bboxes(
+        self, 
+        bboxes, 
+        namespace='detection', 
+        show_id=True, 
+        show_vel=True, 
+        show_score=True, 
+        id_color=False, 
+        RGB_color=None,
+        ):
         if namespace == 'detection':
             color = np.array([66, 135, 245]) / 255.0; id_color = False
-        elif namespace == 'track':
-            color = np.array([237, 185, 52]) / 255.0
+        elif namespace == 'track1':
+            color = np.array([250, 185, 85]) / 255.0
+        elif namespace == 'track2':
+            color = np.array([55, 250, 143]) / 255.0
         elif namespace == 'gt':
             color = np.array([201, 65, 44]) / 255.0
             self.draw_cube(bboxes, color, namespace)
             return
         else:
             sys.exit("Wrong namespace of pub_bboxes!")
+
+        if RGB_color is not None:
+            color = np.array(RGB_color, dtype=np.float)
+            color = np.clip(color, a_min=0, a_max=1)
 
         bboxes_corners = []
         for bbox in bboxes:
@@ -661,7 +708,7 @@ class pub_data:
                 name = bbox[9]
                 score = bbox[10]
                 bbox = [corners, center, velocity, name, score]
-            if namespace == 'track':
+            if namespace in ['track1', 'track2']:
                 corners = get_3d_box((x, y, z), (l, w, h), yaw)
                 name = bbox[10]
                 id = bbox[9]
@@ -732,21 +779,22 @@ class pub_data:
 
         base_color = deepcopy(RGBcolor)
 
-        # Prevent no bbox markerArray error
-        if len(bboxes) == 0:
-            markerArray = []
+        if namespace in ['track1', 'track2']:
+            markerArray = self.trk_markerArray
+        elif namespace =='detection':
+            markerArray = self.det_markerArray
+
+        print(f"{namespace}-bboxes:{len(bboxes)}")
             
         for obid in range(len(bboxes)):
             ob = bboxes[obid][0]
             center = bboxes[obid][1]
             velocity = bboxes[obid][2]
             name = bboxes[obid][3]
-            if namespace == 'track':
-                markerArray = self.trk_markerArray
+            if namespace in ['track1', 'track2']:
                 id = bboxes[obid][4]
                 score = bboxes[obid][5]
             elif namespace =='detection':
-                markerArray = self.det_markerArray
                 score = bboxes[obid][4]
 
             # Draw with id color
@@ -763,7 +811,7 @@ class pub_data:
             marker = Marker()
             marker.header.frame_id = 'world'
             marker.header.stamp = rospy.Time.now()
-            marker.ns = 'bbox'
+            marker.ns = namespace
 
             marker.id = obid
             marker.action = Marker.ADD
@@ -784,11 +832,11 @@ class pub_data:
             markerArray.markers.append(marker)
 
             # Draw bbox id if exist
-            if namespace == 'track' and show_id:
+            if namespace in ['track1', 'track2'] and show_id:
                 marker = Marker()
                 marker.header.frame_id = 'world'
                 marker.header.stamp = rospy.Time.now()
-                marker.ns = 'id'
+                marker.ns = namespace + '_id'
 
                 marker.id = obid
                 marker.action = Marker.ADD
@@ -814,7 +862,7 @@ class pub_data:
                 marker = Marker()
                 marker.header.frame_id = 'world'
                 marker.header.stamp = rospy.Time.now()
-                marker.ns = 'score'
+                marker.ns = namespace + '_score'
 
                 marker.id = obid
                 marker.action = Marker.ADD
@@ -842,7 +890,7 @@ class pub_data:
                 marker = Marker()
                 marker.header.frame_id = 'world'
                 marker.header.stamp = rospy.Time.now()
-                marker.ns = 'velocity'
+                marker.ns = namespace + '_velocity'
 
                 marker.id = obid
                 marker.action = Marker.ADD
@@ -871,46 +919,92 @@ class pub_data:
 
         if namespace == 'detection':
             self.det_pub.publish(markerArray)
-        elif namespace == 'track':
+        elif namespace in ['track1', 'track2']:
             self.trk_pub.publish(markerArray)
 
-    def pub_trajectory(self, traj, id_color=False, namespace='bbox'):
+    def pub_trajectory(self, traj, id_color=False, namespace='track1', RGB_color=None):
+        if namespace == 'track1':
+            base_color = np.array([250, 185, 85]) / 255.0
+        elif namespace == 'track2':
+            base_color = np.array([55, 250, 143]) / 255.0
+        else:
+            base_color = np.array([214, 91, 66]) / 255.0
+
+        if RGB_color is not None:
+            color = np.array(RGB_color, dtype=np.float)
+            color = np.clip(color, a_min=0, a_max=1)
+        else:
+            color = deepcopy(base_color)
+
         current_exist_ids = traj.current_exist_ids
         trackers = traj.trackers
-        base_color = np.array([237, 185, 52]) / 255.0   # Tracker base color
-        RGBcolor = deepcopy(base_color)
+
         duration = 0
         for track_id in current_exist_ids:
             if len(trackers[track_id].locations) <= 1:
                 continue
             # Draw with id color
             if id_color:
-                RGBcolor[0] = ((base_color[0] * 255 + int(track_id) * 15) % 155 + 100) / 255.0    # 100~255
-                RGBcolor[1] = ((base_color[1] * 255 - int(track_id) * 20) % 155 + 100) / 255.0    # 100~255
-                RGBcolor[2] = 100 / 255.0
+                color[0] = ((base_color[0] * 255 + int(track_id) * 15) % 155 + 100) / 255.0    # 100~255
+                color[1] = ((base_color[1] * 255 - int(track_id) * 20) % 155 + 100) / 255.0    # 100~255
+                color[2] = 100 / 255.0
             marker = Marker()
             marker.header.frame_id = "world"
             marker.header.stamp = rospy.Time.now()
-            marker.ns = 'trajectory'
+            marker.ns = namespace + '_trajectory'
             marker.id = int(track_id)
             marker.action = Marker.ADD
             marker.lifetime = rospy.Duration(duration)
             marker.type = Marker.LINE_STRIP
             marker.pose.orientation.w = 1.0
-            marker.color.r = RGBcolor[0]
-            marker.color.g = RGBcolor[1]
-            marker.color.b = RGBcolor[2]
+            marker.color.r = color[0]
+            marker.color.g = color[1]
+            marker.color.b = color[2]
             marker.color.a = 0.6
             marker.scale.x = 0.2
             marker.points.clear()
             marker.points = []
             for p in trackers[track_id].locations:
                 marker.points.append(Point(p[0], p[1], 0))
-            if namespace == 'bbox':
+            if namespace in ['track1', 'track2']:
                 self.traj_markerArray.markers.append(marker)
             elif namespace == 'radar_trk':
                 self.radar_traj_markerArray.markers.append(marker)
-        if namespace == 'bbox':
+
+            # Draw velocity for radar trackers
+            if namespace != 'radar_trk':
+                continue
+            velocity = trackers[track_id].velocity
+            center = trackers[track_id].locations[0]
+            if np.sqrt(velocity[0]**2 + velocity[1]**2) < 0.05:
+                continue
+            marker = Marker()
+            marker.header.frame_id = 'world'
+            marker.header.stamp = rospy.Time.now()
+            marker.ns = namespace + '_velocity'
+            marker.id = int(track_id)
+            marker.action = Marker.ADD
+            marker.type = Marker.ARROW
+            marker.lifetime = rospy.Duration(duration)
+            point = Point()
+            point.x = center[0]
+            point.y = center[1]
+            point.z = 0.0
+            marker.points.append(point)
+            point = Point()
+            point.x = center[0] + velocity[0]
+            point.y = center[1] + velocity[1]
+            point.z = 0.0
+            marker.points.append(point)
+            marker.color.r = color[0]
+            marker.color.g = color[1]
+            marker.color.b = color[2]
+            marker.color.a = 1.0
+            marker.scale.x = 0.4
+            marker.scale.y = 0.6
+            self.radar_traj_markerArray.markers.append(marker)
+
+        if namespace in ['track1', 'track2']:
             self.traj_pub.publish(self.traj_markerArray)
         elif namespace == 'radar_trk':
             self.radar_traj_pub.publish(self.radar_traj_markerArray)
@@ -929,7 +1023,6 @@ class pub_data:
             markerArray.markers.clear()
 
 from threading import Thread
-from concurrent.futures import ThreadPoolExecutor
 class CustomThread(Thread):
     def __init__(self, func, args=()):
         Thread.__init__(self)
@@ -950,20 +1043,25 @@ def read_all_data(data, frames, idx, args):
     lidar_pc = stack_pointclouds(data.read_lidar_pc, frames, idx, args.lidar_stack)
     radar_pc = stack_pointclouds(data.read_radar_pc, frames, idx, args.radar_stack)[:, :3]
     frames_det = stack_bboxes(data.get_bbox_result, frames, idx, args.det_bbox_stack, data_type='detection', th=args.vis_th)
-    frames_trk = stack_bboxes(data.get_bbox_result, frames, idx, args.trk_bbox_stack, data_type='track', th=args.vis_th)
+    frames_trk1 = stack_bboxes(data.get_bbox_result, frames, idx, args.trk_bbox_stack, data_type='track1', th=args.vis_th)
+    frames_trk2 = stack_bboxes(data.get_bbox_result, frames, idx, args.trk_bbox_stack, data_type='track2', th=args.vis_th)
     gt = data.get_gt_bbox(token)
-    trajectory = Trajectory(frames_trk) # trk_bbox_stack number
+    trajectory1 = Trajectory(frames_trk1) # trk_bbox_stack number
+    trajectory2 = Trajectory(frames_trk2)
     if args.vis_img_bbox:
-        cam_imgs = data.cam_with_box(token, data_type='track', th=args.vis_th, id_color=True)
+        cam_imgs = data.cam_with_box(token, data_type='track1', th=args.vis_th, id_color=args.id_color)
+        cam_imgs = data.cam_with_box(token, data_type='track2', th=args.vis_th, id_color=args.id_color, prev_imgs=cam_imgs)
     else:
         cam_imgs = data.get_cam_imgs(token)
     result_data = {
         'lidar_pc': lidar_pc,
         'radar_pc': radar_pc,
         'frames_det': frames_det,
-        'frames_trk': frames_trk, 
+        'frames_trk1': frames_trk1, 
+        'frames_trk2': frames_trk2, 
         'gt': gt,
-        'trajectory': trajectory,
+        'trajectory1': trajectory1,
+        'trajectory2': trajectory2,
         'cam_imgs': cam_imgs,
     }
     if args.viz_radar_trks:
@@ -988,8 +1086,10 @@ def publish_all_result(publisher, data, frames, idx, result_data, args):
     publisher.pub_cam(result_data['cam_imgs'])
     publisher.pub_bboxes(result_data['gt'], namespace='gt', show_id=False, show_vel=False, show_score=False, id_color=False)
     publisher.pub_bboxes(result_data['frames_det'][0], namespace='detection', show_id=False, show_vel=False, show_score=False, id_color=False)
-    publisher.pub_bboxes(result_data['frames_trk'][0], namespace='track', show_id=trk_show[0], show_vel=trk_show[1], show_score=trk_show[2], id_color=trk_show[3])
-    publisher.pub_trajectory(result_data['trajectory'], id_color=args.id_color, namespace='bbox')
+    publisher.pub_bboxes(result_data['frames_trk1'][0], namespace='track1', show_id=trk_show[0], show_vel=trk_show[1], show_score=trk_show[2], id_color=trk_show[3])
+    publisher.pub_bboxes(result_data['frames_trk2'][0], namespace='track2', show_id=trk_show[0], show_vel=trk_show[1], show_score=trk_show[2], id_color=trk_show[3])
+    publisher.pub_trajectory(result_data['trajectory1'], id_color=args.id_color, namespace='track1')
+    publisher.pub_trajectory(result_data['trajectory2'], id_color=args.id_color, namespace='track2')
     if 'radar_trajectory' in result_data and args.viz_radar_trks:
         publisher.pub_trajectory(result_data['radar_trajectory'], id_color=False, namespace='radar_trk')
 
@@ -998,7 +1098,8 @@ def parser():
     parser.add_argument("--split", type=str, default="val", choices=["train", "val"])
     parser.add_argument("--dataroot", type=str, default='/home/Student/Tracking/data/nuscenes')
     parser.add_argument("--detection_path", type=str, default='/home/Student/Tracking/data/detection_result.json')
-    parser.add_argument("--track_res_path", type=str, default='/home/Student/Tracking/data/track_results/tracking_result.json')
+    parser.add_argument("--track1_res_path", type=str, default=None)
+    parser.add_argument("--track2_res_path", type=str, default=None)
     parser.add_argument("--frames_meta_path", type=str, default='/home/Student/Tracking/data/frames_meta.json')
     parser.add_argument("--vis_gt", type=int, default=1)
     parser.add_argument("--pub_rate", type=float, default=4)
@@ -1032,7 +1133,8 @@ def main(parser):
         version=version,
         split=args.split,
         detection_path=args.detection_path,
-        track_res_path=args.track_res_path,
+        track1_res_path=args.track1_res_path,
+        track2_res_path=args.track2_res_path,
         frame_meta_path=args.frames_meta_path,
         radar_trk_path=args.radar_trk_path,
     )
