@@ -353,7 +353,7 @@ def main() -> None:
 
         # get tracklets of current frame
         det = detections[token]
-        if args.radar_fusion is not None:
+        if args.radar_fusion:
             radar_tracker = deepcopy(radar_trackers[token])
         else:
             radar_tracker = []
