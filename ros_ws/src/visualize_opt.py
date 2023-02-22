@@ -272,7 +272,7 @@ class show_keys:
             pos.append((5, 590))
         for i in range(len(text)):
             if info is not None and i == len(text)-1:
-                fontScale = 0.65
+                fontScale = 0.6
                 fontColor = (255,207,48)
                 thickness = 1
             else:
@@ -324,14 +324,14 @@ class dataset:
         self.imgs = {}
 
     def load_detections(self, path):
-        if path is None:
+        if path is None or path == "None":
             return None
         with open(path, 'rb') as f:
             detections = json.load(f)['results']
         return detections
 
     def load_tracklets(self, path):
-        if path is None:
+        if path is None or path == "None":
             return None
         with open(path, 'rb') as f:
             tracklets = json.load(f)['results']
@@ -343,7 +343,7 @@ class dataset:
         return frames
 
     def load_radar_trk(self, path):
-        if path is None:
+        if path is None or path == "None":
             return None
         with open(path, 'rb') as f:
             data = json.load(f)
@@ -649,26 +649,76 @@ class pub_data:
         self.gt_pub = rospy.Publisher("groundtruth", MarkerArray, queue_size=10)
         self.traj_pub = rospy.Publisher('trajectory', MarkerArray, queue_size=10)
         self.radar_traj_pub = rospy.Publisher('radar_trajectory', MarkerArray, queue_size=10)
+        self.radar_raw_vel_pub = rospy.Publisher('radar_raw_vel', MarkerArray, queue_size=10)
         self.trk_markerArray = MarkerArray()
         self.det_markerArray = MarkerArray()
         self.gt_markerArray = MarkerArray()
         self.traj_markerArray = MarkerArray()
         self.radar_traj_markerArray = MarkerArray()
+        self.radar_raw_vel_markerArray = MarkerArray()
 
-    def pub_pc(self, point_cloud, name='lidar'):
+    def pub_pc(self, point_cloud, name='lidar', viz_r_vel=False):
         header = Header()
         header.stamp = rospy.Time.now()
         header.frame_id = 'world'
         if name == 'lidar':
             self.lidar_pub.publish(pcl2.create_cloud_xyz32(header, point_cloud))
         if name == 'radar':
-            self.radar_pub.publish(pcl2.create_cloud_xyz32(header, point_cloud))
+            self.radar_pub.publish(pcl2.create_cloud_xyz32(header, point_cloud[:, :3]))
+            if not viz_r_vel:
+                return
+            self.pub_radar_vel(point_cloud)
 
     def broadcast(self, nusc_data, token):
         sample_record = nusc_data.get('sample', token)
         LIDAR_record = nusc_data.get('sample_data', sample_record['data']['LIDAR_TOP'])
         ego_pose = nusc_data.get('ego_pose', LIDAR_record['ego_pose_token'])
         self.br.sendTransform(ego_pose['translation'], q_to_xyzw(ego_pose['rotation']), rospy.Time.now(), 'ego_pose', 'world')
+
+    def pub_radar_vel(self, pointcloud, RGB_color=None):
+        '''
+        Publish raw radar points' velocity
+        '''
+        markerArray = self.radar_raw_vel_markerArray
+        color = np.array([239, 41, 41]) / 255.0
+        if RGB_color is not None:
+            color = np.array(RGB_color, dtype=np.float)
+            color = np.clip(color, a_min=0, a_max=1)
+
+        for i in range(len(pointcloud)):
+            x, y, z, vx, vy = pointcloud[i]
+            if np.sqrt(vx**2 + vy**2) < 0.1:
+                continue
+            marker = Marker()
+            marker.header.frame_id = 'world'
+            marker.header.stamp = rospy.Time.now()
+            marker.ns = 'radar_raw_velocity'
+
+            marker.id = i
+            marker.action = Marker.ADD
+            marker.type = Marker.ARROW
+            marker.lifetime = rospy.Duration(0)
+
+            point = Point()
+            point.x = x
+            point.y = y
+            point.z = z
+            marker.points.append(point)
+            point = Point()
+            point.x = x + vx
+            point.y = y + vy
+            point.z = z
+            marker.points.append(point)
+
+            marker.color.r = color[0]
+            marker.color.g = color[1]
+            marker.color.b = color[2]
+            marker.color.a = 1.0
+            marker.scale.x = 0.25
+            marker.scale.y = 0.5
+
+            markerArray.markers.append(marker)
+        self.radar_raw_vel_pub.publish(markerArray)
 
     def pub_bboxes(
         self, 
@@ -931,7 +981,7 @@ class pub_data:
             base_color = np.array([214, 91, 66]) / 255.0
 
         if RGB_color is not None:
-            color = np.array(RGB_color, dtype=np.float)
+            color = np.array(RGB_color, dtype=np.float) / 255.0
             color = np.clip(color, a_min=0, a_max=1)
         else:
             color = deepcopy(base_color)
@@ -1010,8 +1060,22 @@ class pub_data:
             self.radar_traj_pub.publish(self.radar_traj_markerArray)
 
     def clear_markers(self):
-        markerArray_list = [self.gt_markerArray, self.det_markerArray, self.trk_markerArray, self.traj_markerArray, self.radar_traj_markerArray]
-        publisher_list = [self.gt_pub, self.det_pub, self.trk_pub, self.traj_pub, self.radar_traj_pub]
+        markerArray_list = [
+            self.gt_markerArray, 
+            self.det_markerArray, 
+            self.trk_markerArray, 
+            self.traj_markerArray, 
+            self.radar_traj_markerArray,
+            self.radar_raw_vel_markerArray,
+        ]
+        publisher_list = [
+            self.gt_pub, 
+            self.det_pub, 
+            self.trk_pub, 
+            self.traj_pub, 
+            self.radar_traj_pub,
+            self.radar_raw_vel_pub,    
+        ]
         for markerArray in markerArray_list:
             for marker in markerArray.markers:
                 marker.color.a = 0
@@ -1041,7 +1105,7 @@ def read_all_data(data, frames, idx, args):
     '''
     token = frames[idx]['token']
     lidar_pc = stack_pointclouds(data.read_lidar_pc, frames, idx, args.lidar_stack)
-    radar_pc = stack_pointclouds(data.read_radar_pc, frames, idx, args.radar_stack)[:, :3]
+    radar_pc = stack_pointclouds(data.read_radar_pc, frames, idx, args.radar_stack)
     frames_det = stack_bboxes(data.get_bbox_result, frames, idx, args.det_bbox_stack, data_type='detection', th=args.vis_th)
     frames_trk1 = stack_bboxes(data.get_bbox_result, frames, idx, args.trk_bbox_stack, data_type='track1', th=args.vis_th)
     frames_trk2 = stack_bboxes(data.get_bbox_result, frames, idx, args.trk_bbox_stack, data_type='track2', th=args.vis_th)
@@ -1081,7 +1145,7 @@ def publish_all_result(publisher, data, frames, idx, result_data, args):
         trk_show = [True, True, False, False]
     publisher.clear_markers()
     publisher.pub_pc(result_data['lidar_pc'], name='lidar')
-    publisher.pub_pc(result_data['radar_pc'], name='radar')
+    publisher.pub_pc(result_data['radar_pc'], name='radar', viz_r_vel=args.viz_r_vel)
     publisher.broadcast(data.nusc, token)
     publisher.pub_cam(result_data['cam_imgs'])
     publisher.pub_bboxes(result_data['gt'], namespace='gt', show_id=False, show_vel=False, show_score=False, id_color=False)
@@ -1091,7 +1155,7 @@ def publish_all_result(publisher, data, frames, idx, result_data, args):
     publisher.pub_trajectory(result_data['trajectory1'], id_color=args.id_color, namespace='track1')
     publisher.pub_trajectory(result_data['trajectory2'], id_color=args.id_color, namespace='track2')
     if 'radar_trajectory' in result_data and args.viz_radar_trks:
-        publisher.pub_trajectory(result_data['radar_trajectory'], id_color=False, namespace='radar_trk')
+        publisher.pub_trajectory(result_data['radar_trajectory'], id_color=False, namespace='radar_trk', RGB_color=[42, 213, 222])
 
 def parser():
     parser = argparse.ArgumentParser()
@@ -1115,6 +1179,7 @@ def parser():
     # Radar viz
     parser.add_argument("--radar_trk_path", type=str, default=None)
     parser.add_argument("--viz_radar_trks", type=int, default=0)
+    parser.add_argument("--viz_r_vel", type=int, default=0, help="Visualize the raw radar velocity or not, use 1 or 0")
     # multi-thread
     parser.add_argument("--multi_thread", type=int, default=1)
     return parser
