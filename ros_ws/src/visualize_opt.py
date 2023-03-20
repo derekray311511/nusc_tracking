@@ -268,10 +268,11 @@ class show_keys:
         text = ['ESC', 'A', 'D', 'SPACE']
         pos = [(220, 100), (170, 300), (370, 300), (150, 500)]
         if info is not None:
-            text.append(info)
-            pos.append((5, 590))
+            for i in range(len(info)):
+                text.append(info[i])
+                pos.append((5, 590 - 25*(len(info)-i-1)))
         for i in range(len(text)):
-            if info is not None and i == len(text)-1:
+            if info is not None and i >= 4:
                 fontScale = 0.6
                 fontColor = (255,207,48)
                 thickness = 1
@@ -548,8 +549,6 @@ class dataset:
         bboxes = self.get_bbox_result(token, data_type, th)
         for bbox in bboxes:
             x, y, z, w, l, h, yaw, vx, vy = bbox[:9]
-            # recentering for visualization
-            z = z + h/2
             corners = get_3d_box((x, y, z), (l, w, h), yaw)
             bboxes_corners.append(corners)
             if data_type in ['track1', 'track2']:
@@ -1266,7 +1265,7 @@ def main(parser):
         info = '{}-{}'.format(timestamp, token)
 
         ctl_img = np.zeros((600, 600, 3))
-        ctl_img = key_shower.add_text(ctl_img, info)
+        ctl_img = key_shower.add_text(ctl_img, [info])
         if auto_playing_mode:
             ctl_img = key_shower.add_rect(ctl_img)
         cv2.imshow('keys', ctl_img)
