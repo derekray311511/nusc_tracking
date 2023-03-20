@@ -441,6 +441,8 @@ class dataset:
                 dx, dy, dz = bbox['size'][0]-0.5, bbox['size'][1]-0.5, bbox['size'][2]-0.5
             else:
                 dx, dy, dz = bbox['size']
+            # recentering for visualization # to be delete
+            z = z + dz/2
 
             if data_type in ['track1', 'track2']:
                 if bbox['tracking_score'] < th: continue
