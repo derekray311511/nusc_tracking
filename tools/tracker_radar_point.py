@@ -106,6 +106,45 @@ def comparing_positions(self, positions1_data, positions2_data, positions1, posi
         matches = matched_indices
     return matches, unmatched_positions1_data, unmatched_positions2_data
 
+def comparing_positions2(self, positions1_data, positions2_data, positions1, positions2):
+    M = len(positions1_data)
+    N = len(positions2_data)
+
+    # Set the considered range threshold
+    positions1_init = (np.array([np.sqrt(point['velocity'][0]**2 + point['velocity'][1]**2) for point in positions1_data], np.float32) >= 1.5) + 0.5   # M pos1 saw first time
+    # Max distance
+    max_diff = np.array(3.5 * positions1_init, np.float32)
+    # max_diff = np.array([self.velocity_error[box['detection_name']] for box in positions1_data], np.float32)
+
+    if len(positions1) > 0:  # NOT FIRST FRAME
+        dist = (((positions1.reshape(1, -1, 2) - positions2.reshape(-1, 1, 2)) ** 2).sum(axis=2))  # N x M
+        dist = np.sqrt(dist)  # absolute distance in meter
+        invalid = (dist > max_diff.reshape(1, M)) > 0
+        dist = dist + invalid * 1e18
+        if self.hungarian:
+            dist[dist > 1e18] = 1e18
+            matched_indices = linear_sum_assignment(deepcopy(dist))
+        else:
+            matched_indices = greedy_assignment(deepcopy(dist))
+    else:  # first few frame
+        assert M == 0
+        matched_indices = np.array([], np.int32).reshape(-1, 2)
+
+    unmatched_positions1_data = [d for d in range(positions1.shape[0]) if not (d in matched_indices[:, 1])]
+    unmatched_positions2_data = [d for d in range(positions2.shape[0]) if not (d in matched_indices[:, 0])]
+
+    if self.hungarian:
+        matches = []
+        for m in matched_indices:
+            if dist[m[0], m[1]] > 1e16:
+                unmatched_positions2_data.append(m[0])
+            else:
+                matches.append(m)
+        matches = np.array(matches).reshape(-1, 2)
+    else:
+        matches = matched_indices
+    return matches, unmatched_positions1_data, unmatched_positions2_data
+
 def shift_quaternion(Q):
     """
     Convert (w x y z) to (x y z w) format
@@ -400,7 +439,6 @@ class PubTracker(object):
         self.tracking_names = NUSCENES_TRACKING_NAMES
         self.id_count = 0
         self.tracks = []
-        self.NofuseCamera_tracks = []
         self.prev_radar_trackers = []
         self.prev2_radar_trackers = []
         self.prev3_radar_trackers = []
@@ -413,7 +451,6 @@ class PubTracker(object):
     def reset(self):
         self.id_count = 0
         self.tracks = []
-        self.NofuseCamera_tracks = []
         self.prev_radar_trackers = []
         self.prev2_radar_trackers = []
         self.prev3_radar_trackers = []
@@ -421,7 +458,7 @@ class PubTracker(object):
         self.prev5_radar_trackers = []
         self.frame_count = 0
 
-    def step_centertrack(self, results, time_lag, radar_trackers):
+    def step_centertrack(self, results, time_lag, radar_points):
         """
         computes connections between current resources with resources from older frames
         :param results: resources in one specific frame
@@ -431,35 +468,6 @@ class PubTracker(object):
         """
 
         self.frame_count += 1
-
-        # =====================================================
-        self.NofuseCamera_tracks = []
-        if self.radar_fusion:
-            # Set all obj_id to -1
-            r_temp = []
-            for r_tracker in radar_trackers:
-                r_tracker['obj_id'] = -1
-                r_tracker['label_preds'] = ''
-                r_temp.append(r_tracker)
-            radar_trackers = r_temp
-
-            # Pass obj_id from previous radar_trackers
-            if len(self.prev_radar_trackers) != 0:
-                radar_trackers = pass_obj_id(self.prev_radar_trackers, radar_trackers)
-            # Pass obj_id from prev2 to radar trackers
-            if len(self.prev2_radar_trackers) != 0:
-                radar_trackers = pass_obj_id2(self.prev2_radar_trackers, radar_trackers)
-            # Pass obj_id from prev3 to radar trackers
-            if len(self.prev3_radar_trackers) != 0:
-                radar_trackers = pass_obj_id2(self.prev3_radar_trackers, radar_trackers)
-            # Pass obj_id from prev4 to radar trackers
-            if len(self.prev4_radar_trackers) != 0:
-                radar_trackers = pass_obj_id2(self.prev4_radar_trackers, radar_trackers)
-            # Pass obj_id from prev5 to radar trackers
-            if len(self.prev5_radar_trackers) != 0:
-                radar_trackers = pass_obj_id2(self.prev5_radar_trackers, radar_trackers)
-
-        # =====================================================
 
         # if no detection in this frame, reset tracks list
         if len(results) == 0:
@@ -586,10 +594,6 @@ class PubTracker(object):
             self.tracks[m[1]]['detection_score'] = np.clip(self.tracks[m[1]]['detection_score'] - self.score_decay, a_min=0.0, a_max=1.0)
             if self.update_function is not None:
                 track['detection_score'] = update_function(self, track, m, self.update_model)['detection_score']
-            # update detection score by radar and update radar_id
-            if self.radar_fusion and track['detection_name'] in RADAR_FUSION_NAMES:
-                temp_ct, track['radar_track_num'], track['detection_score'] = update_by_radar_tracker(self, track, radar_trackers, 0.2) # 0.2
-                radar_trackers = update_radar_id(self, track, radar_trackers, match=True)
             
             ret.append(track)
 
@@ -623,119 +627,100 @@ class PubTracker(object):
                 track['active'] = 0
             ret.append(track)
 
-        # still store unmatched tracks, however, we shouldn't output the object in current frame
+        # Match with radar points again
+        temp = []
+        for point in radar_points:
+            if point['vel'] < 1.0:
+                continue
+            temp.append(point)
+        radar_points = temp
+        tracks = []
+        points = []
+        tracks_data = []
         for i in unmatched_trk:
             track = self.tracks[i]
+            tracks.append(track['KF'].x[:2])
+            tracks_data.append(self.tracks[i])
+        for point in radar_points:
+            points.append(point['pose'][:2])
+        tracks = np.array(tracks, np.float32)
+        points = np.array(points, np.float32)
+
+        matching = comparing_positions2(self, tracks_data, radar_points, tracks, points)
+        matched, unmatched_trk, unmatched_det = matching[0], matching[1], matching[2]
+
+        # add matches
+        for m in matched:
+            # initiate new tracklet (with three additional attributes)
+            track = tracks_data[m[1]]
+            prev_ct = track['ct']
+            track['ct'] = radar_points[m[0]]['pose']
+            diff = (np.array(track['ct']) - np.array(prev_ct)) / time_lag
+            track['age'] = 1  # how many frames without matching detection (i.e. inactivity)
+            track['active'] = tracks_data[m[1]]['active'] + 1
+            track['radar_track_num'] = 0
+            if self.tracker == 'KF':
+                if self.use_vel:
+                    track['KF'].update(z=np.hstack([track['ct'], np.array(diff)]))
+                else:
+                    track['KF'].update(z=track['ct'])
+                track['ct'][0] = track['KF'].x[0]
+                track['ct'][1] = track['KF'].x[1]
+                track['velocity'][0] = track['KF'].x[2]
+                track['velocity'][1] = track['KF'].x[3]
+            track = update_heading_by_velocity(self, track)
+
+            # update detection score
+            # self.tracks[m[1]]['detection_score'] = np.clip(self.tracks[m[1]]['detection_score'] - self.score_decay, a_min=0.0, a_max=1.0)
+            # if self.update_function is not None:
+            #     track['detection_score'] = update_function(self, track, m, self.update_model)['detection_score']
+            # update detection score by radar and update radar_id
+            # if self.radar_fusion and track['detection_name'] in RADAR_FUSION_NAMES:
+            #     temp_ct, track['radar_track_num'], track['detection_score'] = update_by_radar_tracker(self, track, radar_trackers, 0.0) # 0.2
+            #     radar_trackers = update_radar_id(self, track, radar_trackers, match=True)
+            ret.append(track)
+
+        for i in unmatched_trk:
+            track = tracks_data[i]
 
             # update score (only apply score decay)
             if self.update_function is not None:
                 track['detection_score'] -= self.score_decay
 
-            track['radar_track_num'] = 0
-            ct = track['ct']
+            # keep tracklet if score is above threshold AND age is not too high
+            if track['age'] < self.max_age and track['detection_score'] > self.del_th:
+                track['age'] += 1
+                # Activate if score is large enough
+                if track['detection_score'] > self.s_th:
+                    track['active'] += 1
+                else:
+                    track['active'] = 0
 
-            # ================================================================
-            if self.radar_fusion and track['detection_name'] in RADAR_FUSION_NAMES:
-                # Update pose with radar_trackers (based on obj id)
-                temp_ct, track['radar_track_num'], track['detection_score'] = update_by_radar_tracker(self, track, radar_trackers, 0.3)
-                if self.tracker == 'PointTracker':
-                    if track['radar_track_num'] != 0:
-                        track['ct'] = temp_ct
-                        track['tracking']  = ct - temp_ct
-                        track['velocity'][:2] = track['tracking'] * -1 / time_lag
-                        # print("tracking:", track['tracking'])
-                        # print(f"id: {track['tracking_id']}, tracking: {track['tracking']}, radar_num: {track['radar_track_num']}, ct: {ct}, track[ct]: {track['ct']}")
-                        track = update_heading_by_velocity(self, track)
-                    else:
-                        if 'tracking' in track:
-                            offset = track['tracking'] * -1  # move forward
-                            track['ct'] = ct + offset
-                    # radar_trackers = update_radar_id(self, track, radar_trackers)
-                    # if track['tracking_id'] == int(40):
-                    #     print(f"1-id: {track['tracking_id']}, [x, y]: {track['ct']}, vel: {track['velocity'][:2]}")
-                elif self.tracker == 'KF':
-                    if ct[0] != temp_ct[0] or ct[1] != temp_ct[1]:
-                        if self.use_vel:
-                            track['KF'].update(z=np.hstack([temp_ct, np.array((temp_ct - ct) / time_lag)]))
-                        else:
-                            track['KF'].update(z=temp_ct)
-                        track['ct'][0] = track['KF'].x[0]
-                        track['ct'][1] = track['KF'].x[1]
-                        track['velocity'][0] = track['KF'].x[2]
-                        track['velocity'][1] = track['KF'].x[3]
-                        track = update_heading_by_velocity(self, track)
-                    else:
-                        track['ct'][0] = track['KF'].x[0]
-                        track['ct'][1] = track['KF'].x[1]
-                        track['velocity'][0] = track['KF'].x[2]
-                        track['velocity'][1] = track['KF'].x[3]
-                    # radar_trackers = update_radar_id(self, track, radar_trackers)
-
-            else:
-                if 'tracking' in track and self.tracker == 'PointTracker':
+                ct = track['ct']
+                if 'tracking' in track:
                     offset = track['tracking'] * -1  # move forward
                     track['ct'] = ct + offset
-                elif self.tracker == 'KF':
+                    track['translation'][:2] = track['ct']
+                elif 'KF' in track:
                     track['ct'][0] = track['KF'].x[0]
                     track['ct'][1] = track['KF'].x[1]
                     track['velocity'][0] = track['KF'].x[2]
                     track['velocity'][1] = track['KF'].x[3]
-
-            # ================================================================
-
-            # keep tracklet if score is above threshold AND age is not too high
-            if track['age'] < self.max_age and track['detection_score'] > self.del_th:
-                if self.radar_fusion:
-                    self.s_th = self.radar_active_th
-                    if track['radar_track_num'] == 0:
-                        track['age'] += 1
-                    else:
-                        track['age'] = 1
-                else:
-                    track['age'] += 1
-
-                if self.radar_fusion:
-                    if track['detection_score'] > self.s_th and track['radar_track_num'] != 0:   # Only active when score > th and having same id radar tracker
-                        track['active'] += 1
-                        radar_trackers = update_radar_id(self, track, radar_trackers, match=False)
-                        if track['radar_track_num'] > 0:
-                            # print(f"unMatched trk radar track num: {track['radar_track_num']}, score: {track['detection_score']}")
-                            self.Active_by_radarTracker += 1
-                            self.Active_by_radarTracker_cat[RADAR_FUSION_NAMES.index(track['detection_name'])] += 1
-                    else:
-                        track['active'] = 0
-                else:
-                    if track['detection_score'] > self.s_th:
-                        track['active'] += 1
-                    else:
-                        track['active'] = 0
-
                 ret.append(track)
+
 
 
         for i in range(len(ret)):
             ret[i]['translation'][:2] = ret[i]['ct']
-            # if ret[i]['tracking_id'] == int(40):
-            #     print(f"2-id: {ret[i]['tracking_id']}, [x, y]: {ret[i]['translation']}, vel: {ret[i]['velocity'][:2]}")
 
         # ================================================================
-        if self.radar_fusion:
-            # Do NMS (non maximum suppression)
-            # nms_threshold = 0.5
-            # boxes = tracks_to_boxes(ret)
-            # ret, new_boxes = NMS(ret, boxes, nms_threshold)
-
-            if self.frame_count > 4:
-                self.prev5_radar_trackers = self.prev4_radar_trackers
-            if self.frame_count > 3:
-                self.prev4_radar_trackers = self.prev3_radar_trackers
-            if self.frame_count > 2:
-                self.prev3_radar_trackers = self.prev2_radar_trackers
-            if self.frame_count > 1:
-                self.prev2_radar_trackers = self.prev_radar_trackers
-            self.prev_radar_trackers = radar_trackers
+        # if self.radar_fusion:
+        #     # Do NMS (non maximum suppression)
+        #     # nms_threshold = 0.5
+        #     # boxes = tracks_to_boxes(ret)
+        #     # ret, new_boxes = NMS(ret, boxes, nms_threshold)
 
         # ================================================================
 
-        self.tracks = ret + self.NofuseCamera_tracks
+        self.tracks = ret
         return ret
