@@ -34,6 +34,16 @@ GT_CATEGORIES = [
     'human.pedestrian.police_officer', 'human.pedestrian.construction_worker', 
 ]
 
+SHOW_CATEGORIES = [
+    'bicycle',
+    'motorcycle',
+    'pedestrian',
+    'bus',
+    'car',
+    'trailer',
+    'truck',
+]
+
 def stack_pointclouds(read_data_func, frames, idx, stack_num):
     pcs = []
     for i in range(stack_num):
@@ -149,28 +159,28 @@ def quaternion_rotation_matrix(Q):
     return rot_matrix
 
 def euler_from_quaternion(q):
-        """
-        x y z w -> roll pitch yaw \n
-        Convert a quaternion into euler angles (roll, pitch, yaw) \n
-        roll is rotation around x in radians (counterclockwise) \n
-        pitch is rotation around y in radians (counterclockwise) \n
-        yaw is rotation around z in radians (counterclockwise) \n
-        """
-        x, y, z, w = q
-        t0 = +2.0 * (w * x + y * z)
-        t1 = +1.0 - 2.0 * (x * x + y * y)
-        roll_x = math.atan2(t0, t1)
-     
-        t2 = +2.0 * (w * y - z * x)
-        t2 = +1.0 if t2 > +1.0 else t2
-        t2 = -1.0 if t2 < -1.0 else t2
-        pitch_y = math.asin(t2)
-     
-        t3 = +2.0 * (w * z + x * y)
-        t4 = +1.0 - 2.0 * (y * y + z * z)
-        yaw_z = math.atan2(t3, t4)
-     
-        return roll_x, pitch_y, yaw_z # in radians
+    """
+    x y z w -> roll pitch yaw \n
+    Convert a quaternion into euler angles (roll, pitch, yaw) \n
+    roll is rotation around x in radians (counterclockwise) \n
+    pitch is rotation around y in radians (counterclockwise) \n
+    yaw is rotation around z in radians (counterclockwise) \n
+    """
+    x, y, z, w = q
+    t0 = +2.0 * (w * x + y * z)
+    t1 = +1.0 - 2.0 * (x * x + y * y)
+    roll_x = math.atan2(t0, t1)
+    
+    t2 = +2.0 * (w * y - z * x)
+    t2 = +1.0 if t2 > +1.0 else t2
+    t2 = -1.0 if t2 < -1.0 else t2
+    pitch_y = math.asin(t2)
+    
+    t3 = +2.0 * (w * z + x * y)
+    t4 = +1.0 - 2.0 * (y * y + z * z)
+    yaw_z = math.atan2(t3, t4)
+    
+    return roll_x, pitch_y, yaw_z # in radians
 
 def rotz(t):
     c = np.cos(t)
@@ -308,6 +318,7 @@ class dataset:
         track2_res_path=None, 
         frame_meta_path='data/frames_meta.json',
         radar_trk_path=None, 
+        category_names=None,
     ):
         self.nusc = NuScenes(version=version, dataroot=dataroot, verbose=True)
         self.dataroot = dataroot
@@ -322,6 +333,7 @@ class dataset:
         self.tracklets2 = self.load_tracklets(track2_res_path)
         self.frames = self.load_frames_meta(frame_meta_path)
         self.radar_trks = self.load_radar_trk(radar_trk_path)
+        self.category_names = category_names
         self.imgs = {}
 
     def load_detections(self, path):
@@ -447,15 +459,18 @@ class dataset:
 
             if data_type in ['track1', 'track2']:
                 if bbox['tracking_score'] < th: continue
+                if (self.category_names is not None) and (bbox['tracking_name'] not in self.category_names): continue
                 id = bbox['tracking_id']
                 name = bbox['tracking_name']
                 score = bbox['tracking_score']
                 new_boxes.append([x, y, z, dx, dy, dz, yaw, vx, vy, id, name, score])
             else:
                 if bbox['detection_score'] < th: continue
+                if (self.category_names is not None) and (bbox['detection_name'] not in self.category_names): continue
                 name = bbox['detection_name']
                 score = bbox['detection_score']
                 new_boxes.append([x, y, z, dx, dy, dz, yaw, vx, vy, name, score])
+
         return new_boxes
 
     def get_gt_bbox(self, token):
@@ -1203,6 +1218,7 @@ def main(parser):
         track2_res_path=args.track2_res_path,
         frame_meta_path=args.frames_meta_path,
         radar_trk_path=args.radar_trk_path,
+        category_names=SHOW_CATEGORIES,
     )
     key_shower = show_keys()
     publisher = pub_data()
@@ -1331,3 +1347,4 @@ def main(parser):
 
 if __name__ == "__main__":
     main(parser())
+    
