@@ -1,7 +1,7 @@
 import random
 import numpy as np
 import math
-from matplotlib import pyplot
+from matplotlib import pyplot as plt
 
 def box3d_filter(box3d, points):
     '''
@@ -123,10 +123,10 @@ def test2d():
     # this is just for drawing
     rect = np.array([[bx1, by1], [bx1, by2], [bx2, by2], [bx2, by1], [bx1, by1]])
 
-    pyplot.plot(inbox[:, 0], inbox[:, 1], 'rx',
+    plt.plot(inbox[:, 0], inbox[:, 1], 'rx',
                 outbox[:, 0], outbox[:, 1], 'bo',
                 rect[:, 0], rect[:, 1], 'g-')
-    pyplot.show()
+    plt.show()
 
 def test3d():
     points = [(random.random(), random.random(), random.random()) for i in range(100)]
@@ -141,10 +141,10 @@ def test3d():
     # this is just for drawing
     rect = np.array([[bx1, by1], [bx1, by2], [bx2, by2], [bx2, by1], [bx1, by1]])
 
-    pyplot.plot(inbox[:, 0], inbox[:, 1], 'rx',
+    plt.plot(inbox[:, 0], inbox[:, 1], 'rx',
                 outbox[:, 0], outbox[:, 1], 'bo',
                 rect[:, 0], rect[:, 1], 'g-')
-    pyplot.show()
+    plt.show()
 
 import numpy as np
 from scipy.spatial import ConvexHull
@@ -275,49 +275,49 @@ def box3d_iou(corners1, corners2):
     iou = inter_vol / (vol1 + vol2 - inter_vol)
     return iou, iou_2d
 
+def q_to_xyzw(Q):
+    '''
+    wxyz -> xyzw
+    '''
+    return [Q[1], Q[2], Q[3], Q[0]]
+
+def euler_from_quaternion(q):
+    """
+    x y z w -> roll pitch yaw \n
+    Convert a quaternion into euler angles (roll, pitch, yaw) \n
+    roll is rotation around x in radians (counterclockwise) \n
+    pitch is rotation around y in radians (counterclockwise) \n
+    yaw is rotation around z in radians (counterclockwise) \n
+    """
+    x, y, z, w = q
+    t0 = +2.0 * (w * x + y * z)
+    t1 = +1.0 - 2.0 * (x * x + y * y)
+    roll_x = math.atan2(t0, t1)
+
+    t2 = +2.0 * (w * y - z * x)
+    t2 = +1.0 if t2 > +1.0 else t2
+    t2 = -1.0 if t2 < -1.0 else t2
+    pitch_y = math.asin(t2)
+
+    t3 = +2.0 * (w * z + x * y)
+    t4 = +1.0 - 2.0 * (y * y + z * z)
+    yaw_z = math.atan2(t3, t4)
+
+    return roll_x, pitch_y, yaw_z # in radians
+
 def nms(boxes, iou_th):
     '''
     each box: [x, y, z, dx, dy, dz, yaw, vx, vy, name, score]
-    '''
-    def q_to_xyzw(Q):
-        '''
-        wxyz -> xyzw
-        '''
-        return [Q[1], Q[2], Q[3], Q[0]]
-    
-    def euler_from_quaternion(q):
-        """
-        x y z w -> roll pitch yaw \n
-        Convert a quaternion into euler angles (roll, pitch, yaw) \n
-        roll is rotation around x in radians (counterclockwise) \n
-        pitch is rotation around y in radians (counterclockwise) \n
-        yaw is rotation around z in radians (counterclockwise) \n
-        """
-        x, y, z, w = q
-        t0 = +2.0 * (w * x + y * z)
-        t1 = +1.0 - 2.0 * (x * x + y * y)
-        roll_x = math.atan2(t0, t1)
-    
-        t2 = +2.0 * (w * y - z * x)
-        t2 = +1.0 if t2 > +1.0 else t2
-        t2 = -1.0 if t2 < -1.0 else t2
-        pitch_y = math.asin(t2)
-    
-        t3 = +2.0 * (w * z + x * y)
-        t4 = +1.0 - 2.0 * (y * y + z * z)
-        yaw_z = math.atan2(t3, t4)
-    
-        return roll_x, pitch_y, yaw_z # in radians
-    
+    '''    
     # Transform to 8 corners
     corners = []
     scores = []
     for box in boxes:
         x, y, z = box['translation']
-        dx, dy, dz = box['size']
+        dx, dy, dz = box['size']    # l w h
         Quaternion = q_to_xyzw(box['rotation'])
         roll, pitch, yaw = euler_from_quaternion(Quaternion)
-        corner = get_3d_box([x, y, z], [dx, dy, dz], yaw)
+        corner = get_3d_box([x, y, z], [dy, dx, dz], yaw)
         corners.append(corner)
         scores.append(box['detection_score'])
     corners = np.array(corners)
@@ -347,9 +347,49 @@ def nms(boxes, iou_th):
         box_indices = np.delete(box_indices, tmp_suppress, axis=0)
         box_indices = box_indices[1:]
 
+    corners_sorted = np.delete(corners_sorted, suppressed_box_indices, axis=0)
     preserved_boxes = boxes
     preserved_boxes = [preserved_boxes[i] for i in range(len(preserved_boxes)) if i not in suppressed_box_indices]
     return preserved_boxes, suppressed_box_indices
+
+def nms_visualizer(nms, *args):
+    dets, iou = args[0], args[1]
+
+    def box2corners2d(boxes):
+        corners = []
+        for box in dets:
+            x, y, z = box['translation']
+            dx, dy, dz = box['size']
+            Quaternion = q_to_xyzw(box['rotation'])
+            roll, pitch, yaw = euler_from_quaternion(Quaternion)
+            corner = get_3d_box([x, y, z], [dy, dx, dz], yaw)
+            corners.append(corner[:4, :2])
+        return np.array(corners)
+    
+    def draw_boxes(ax, corners, color, thickness=2):
+        corners = corners[:, [0, 1, 2, 3, 0], :2]
+        print(f"corners shape: {corners.shape}")
+        for index in range(corners.shape[0]):
+            ax.plot(
+                corners[index, :, 0],
+                corners[index, :, 1],
+                linewidth=thickness,
+                color=np.array(color) / 255,
+            )
+    
+
+    corners2d = box2corners2d(dets)
+    fig, ax = plt.subplots(1, 1, figsize=(16, 12))
+    draw_boxes(ax, corners2d, color=[66, 135, 245], thickness=4)
+    dets, suppressed_box_indices = nms(dets, iou)
+    
+    corners2d = box2corners2d(dets)
+    draw_boxes(ax, corners2d, color=[245, 179, 66], thickness=1.5)
+    plt.tight_layout()
+    plt.show()
+
+    return dets, suppressed_box_indices
+
 
 if __name__ == "__main__":
     # test2d()
