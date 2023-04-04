@@ -824,21 +824,22 @@ def main() -> None:
         "use_external": False,
     }
 
-    # Write radar update frames info
+    # Write radar update frames info and radar tracking results
     if args.radar_fusion:
         radar_frames_path = os.path.join(root_path, "radar_update_frames.json")
         with open(radar_frames_path, "w") as f:
             json.dump(radar_active_frames, f, indent = 2)
         print(f"radar update frames info write to {radar_frames_path}")
 
+        # write radar result file
+        with open(os.path.join(root_path, 'radar_tracking_result_13Hz.json'), "w") as f:
+            json.dump(radar_points_trk, f)
+        print(f"radar tracking results write to {root_path + 'radar_tracking_result_13Hz.json'}")
+
     # write result file
     with open(track_res_path, "w") as f:
         json.dump(nusc_annos_trk, f)
     print(f"tracking results write to {track_res_path}\n")
-
-    # write radar result file
-    with open(os.path.join(root_path, 'radar_tracking_result_13Hz.json'), "w") as f:
-        json.dump(radar_points_trk, f)
 
     # Evaluation
     if args.evaluate:
