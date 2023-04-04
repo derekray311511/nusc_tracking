@@ -347,7 +347,7 @@ def nms(boxes, iou_th):
         box_indices = np.delete(box_indices, tmp_suppress, axis=0)
         box_indices = box_indices[1:]
 
-    corners_sorted = np.delete(corners_sorted, suppressed_box_indices, axis=0)
+    # corners_sorted = np.delete(corners_sorted, suppressed_box_indices, axis=0)
     preserved_boxes = boxes
     preserved_boxes = [preserved_boxes[i] for i in range(len(preserved_boxes)) if i not in suppressed_box_indices]
     return preserved_boxes, suppressed_box_indices
