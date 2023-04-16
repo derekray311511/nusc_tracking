@@ -50,7 +50,7 @@ bash tools/track_template.sh
 
 ## Visualization
 
-<img src="https://user-images.githubusercontent.com/84118285/232288559-e97d3b81-05e9-4768-8ff4-7f5fac0799b2.gif" width="500" /><img src="https://user-images.githubusercontent.com/84118285/232288580-44f8e189-a134-41c8-a523-c903ff416305.gif" width="500" />
+<img src="https://user-images.githubusercontent.com/84118285/232288559-e97d3b81-05e9-4768-8ff4-7f5fac0799b2.gif" width="800" /><img src="https://user-images.githubusercontent.com/84118285/232288580-44f8e189-a134-41c8-a523-c903ff416305.gif" width="800" />
 
 Need to download dataset from `nuscenes trainval dataset` from [**Nuscenes website**](https://www.nuscenes.org/nuscenes#download).
 We use **ros** to **visualize** our tracking results.
