@@ -1094,7 +1094,8 @@ class pub_data:
         ]
         for markerArray in markerArray_list:
             for marker in markerArray.markers:
-                marker.color.a = 0
+                # marker.color.a = 0
+                marker.lifetime = rospy.Duration(0.1)
         # Clear markers in rviz
         for (pub, markerArray) in zip(publisher_list, markerArray_list):
             pub.publish(markerArray)
