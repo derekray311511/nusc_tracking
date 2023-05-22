@@ -51,6 +51,22 @@ RADAR_FUSION_NAMES = [
     'construction_vehicle', 
 ]
 
+RADAR_UNCERTAINTY_PARAMETER = 2
+RADAR_CLS_VELOCITY_ERROR = {key: value * RADAR_UNCERTAINTY_PARAMETER for key, value in NUSCENE_CLS_VELOCITY_ERROR.items()}
+# RADAR_CLS_VELOCITY_ERROR = {
+#     'car': 6,
+#     'truck': 8,
+#     'bus': 11,
+#     'trailer': 4,
+#     'pedestrian': 2,
+#     'motorcycle': 8,
+#     'bicycle': 5,
+#     'construction_vehicle': 2,
+#     'barrier': 2,
+#     'traffic_cone': 2,
+# }
+
+print(f"RADAR_CLS_VELOCITY_ERROR = \n{RADAR_CLS_VELOCITY_ERROR}")
 
 def greedy_assignment(dist):
     matched_indices = []
@@ -246,6 +262,10 @@ def update_by_radar_tracker(self, track, radar_trackers, min_score):
     for radar_track in radar_trackers:
         radar_id = radar_track['obj_id']
         radar_cat = radar_track['label_preds']
+        track_cat = track['detection_name']
+        dist_th = RADAR_CLS_VELOCITY_ERROR[track_cat]
+        if dist2d(track['KF'].x[:2], radar_track['translation']) > dist_th:
+            continue
         if radar_id == id and (radar_cat == track['label_preds']):
             counter += 1
             center += radar_track['translation']

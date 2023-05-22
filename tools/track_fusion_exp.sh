@@ -1,12 +1,12 @@
 # Detection
-bbox_score=0.0
+bbox_score=0.01
 
 # Tracker
 tracker='KF'    # KF/PointTracker
 use_vel=1
 min_hits=1
 max_age=6
-det_th=0.0
+det_th=0.025
 del_th=0.0
 active_th=1.0
 update_function='multiplication'
@@ -19,7 +19,7 @@ radar_fusion=1
 
 # Data and eval
 evaluate=0
-out_dir="data/track_results/BEVFusion-KF(R)-mul-2-exp-nms2"
+out_dir="data/track_results/BEVFusion-KF(R)-mul-2-exp-nms_0.5-verror*2"
 # out_dir="data/track_results/CenterPoint-KF(R)-mul-1-exp"
 dataroot="data/nuscenes"
 workspace="/home/Student/Tracking"

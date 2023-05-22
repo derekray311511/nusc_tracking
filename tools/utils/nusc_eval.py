@@ -61,6 +61,7 @@ if __name__ == "__main__":
         }
     out_dir = os.path.join(result_path, f"eval_custom_{str(range)}")
     mkdir_or_exist(out_dir)
+    print(f"\nResult path: {result_path}")
     print(f"\nEvaluating {args.version} using dataset from '{dataroot}'...\n")
     nusc_eval(
             os.path.join(result_path, 'tracking_result.json'),
