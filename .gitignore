@@ -1,0 +1,6 @@
+ros_ws/build
+ros_ws/devel
+ros_ws/.catkin_workspace
+cluster_cases
+data
+tools/__pycache__
