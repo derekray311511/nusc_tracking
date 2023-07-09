@@ -37,5 +37,5 @@ python tools/track_fusion_exp.py --split $split --workspace $workspace --out-dir
 --detection_path $detection_path --frames_meta_path $frames_meta_path \
 --tracker $tracker --bbox-score $bbox_score --max_age $max_age \
 --use_vel $use_vel --radar_fusion $radar_fusion --radar_pc_path $radar_pc_path \
---use_nms $use_nms --nms_th $nms_th
+--use_nms $use_nms --nms_th $nms_th \
 --vel_fusion $vel_fusion
