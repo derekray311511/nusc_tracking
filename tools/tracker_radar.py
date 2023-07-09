@@ -43,7 +43,7 @@ NUSCENE_CLS_VELOCITY_ERROR = {
 }
 
 RADAR_FUSION_NAMES = [
-    # 'bus', 
+    'bus', 
     'car', 
     'motorcycle',
     'trailer', 
@@ -51,7 +51,7 @@ RADAR_FUSION_NAMES = [
     'construction_vehicle', 
 ]
 
-RADAR_UNCERTAINTY_PARAMETER = 2
+RADAR_UNCERTAINTY_PARAMETER = 1
 RADAR_CLS_VELOCITY_ERROR = {key: value * RADAR_UNCERTAINTY_PARAMETER for key, value in NUSCENE_CLS_VELOCITY_ERROR.items()}
 # RADAR_CLS_VELOCITY_ERROR = {
 #     'car': 6,

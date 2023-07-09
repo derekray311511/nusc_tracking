@@ -632,6 +632,7 @@ def main() -> None:
     parser.add_argument("--use_nms", type=int, default=0)
     parser.add_argument("--nms_th", type=float, default=0.5)
     parser.add_argument("--use_vel", type=int, default=1)
+    parser.add_argument("--vel_fusion", type=int, default=0)
     parser.add_argument("--evaluate", type=int, default=0)
     parser.add_argument("--dataroot", type=str, default='data/nuscenes')
     parser.add_argument("--workspace", type=str, default='/home/Student/Tracking')
@@ -646,6 +647,9 @@ def main() -> None:
     if args.radar_fusion:
         if args.radar_tracker_path is None:
             print("Warning: args.radar_tracker_path is None!")
+
+    if args.vel_fusion:
+        print("Using LiDAR detection to refine radar velocity")
 
     # Prepare results saving path and save parameters
     root_path = args.out_dir
@@ -744,7 +748,9 @@ def main() -> None:
                     'vel': np.sqrt(point[3]**2 + point[4]**2),
                     'vel_comp': point[3:5],
                 })
-            inputs = vel_fusion(det, inputs)
+            if args.vel_fusion:
+                inputs = vel_fusion(det, inputs)
+
             result = radar_tracker.step_centertrack(inputs, time_lag)
             radar_tracker_result = []
             for r_trk in result:

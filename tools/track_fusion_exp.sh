@@ -16,11 +16,12 @@ nms_th=0.5
 
 # Radar
 radar_fusion=1
+vel_fusion=0    # Use LiDAR detection to refine radar velocity
 
 # Data and eval
 evaluate=0
-out_dir="data/track_results/BEVFusion-KF(R)-mul-2-exp-nms_0.5-verror*2"
-# out_dir="data/track_results/CenterPoint-KF(R)-mul-1-exp"
+# out_dir="data/track_results/BEVFusion-KF(R)-mul-2-exp-nms_0.5-verror*1-bus-update_radar_match_score"
+out_dir="data/track_results/Test"
 dataroot="data/nuscenes"
 workspace="/home/Student/Tracking"
 split="val"
@@ -37,3 +38,4 @@ python tools/track_fusion_exp.py --split $split --workspace $workspace --out-dir
 --tracker $tracker --bbox-score $bbox_score --max_age $max_age \
 --use_vel $use_vel --radar_fusion $radar_fusion --radar_pc_path $radar_pc_path \
 --use_nms $use_nms --nms_th $nms_th
+--vel_fusion $vel_fusion
