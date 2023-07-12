@@ -1,4 +1,5 @@
 import numpy as np
+import math
 from nuscenes.utils.geometry_utils import transform_matrix
 from pyquaternion import Quaternion
 
@@ -36,3 +37,97 @@ def pc2world(nusc, pointcloud, ego_pose_token, calib_token, name='LIDAR_TOP', in
             new_trans = np.hstack([new_trans, new_vel[:, :2]])
 
     return new_trans
+
+def q_to_xyzw(Q):
+        '''
+        wxyz -> xyzw
+        '''
+        return [Q[1], Q[2], Q[3], Q[0]]
+
+def q_to_wxyz(Q):
+    '''
+    xyzw -> wxyz
+    '''
+    return [Q[3], Q[0], Q[1], Q[2]]
+
+def get_quaternion_from_euler(roll, pitch, yaw):
+    """
+    Convert an Euler angle to a quaternion.
+
+    Input
+        :param roll: The roll (rotation around x-axis) angle in radians.
+        :param pitch: The pitch (rotation around y-axis) angle in radians.
+        :param yaw: The yaw (rotation around z-axis) angle in radians.
+
+    Output
+        :return qx, qy, qz, qw: The orientation in quaternion [x,y,z,w] format
+    """
+    qx = np.sin(roll/2) * np.cos(pitch/2) * np.cos(yaw/2) - np.cos(roll/2) * np.sin(pitch/2) * np.sin(yaw/2)
+    qy = np.cos(roll/2) * np.sin(pitch/2) * np.cos(yaw/2) + np.sin(roll/2) * np.cos(pitch/2) * np.sin(yaw/2)
+    qz = np.cos(roll/2) * np.cos(pitch/2) * np.sin(yaw/2) - np.sin(roll/2) * np.sin(pitch/2) * np.cos(yaw/2)
+    qw = np.cos(roll/2) * np.cos(pitch/2) * np.cos(yaw/2) + np.sin(roll/2) * np.sin(pitch/2) * np.sin(yaw/2)
+
+    return [qx, qy, qz, qw]
+
+def quaternion_rotation_matrix(Q):
+    """
+    Covert a quaternion into a full three-dimensional rotation matrix.
+    
+    Input
+    :param Q: A 4 element array representing the quaternion (q0,q1,q2,q3)  (w,x,y,z)
+    
+    Output
+    :return: A 3x3 element matrix representing the full 3D rotation matrix. 
+                This rotation matrix converts a point in the local reference 
+                frame to a point in the global reference frame.
+    """
+    # Extract the values from Q
+    q0 = Q[0]
+    q1 = Q[1]
+    q2 = Q[2]
+    q3 = Q[3]
+        
+    # First row of the rotation matrix
+    r00 = 2 * (q0 * q0 + q1 * q1) - 1
+    r01 = 2 * (q1 * q2 - q0 * q3)
+    r02 = 2 * (q1 * q3 + q0 * q2)
+        
+    # Second row of the rotation matrix
+    r10 = 2 * (q1 * q2 + q0 * q3)
+    r11 = 2 * (q0 * q0 + q2 * q2) - 1
+    r12 = 2 * (q2 * q3 - q0 * q1)
+        
+    # Third row of the rotation matrix
+    r20 = 2 * (q1 * q3 - q0 * q2)
+    r21 = 2 * (q2 * q3 + q0 * q1)
+    r22 = 2 * (q0 * q0 + q3 * q3) - 1
+        
+    # 3x3 rotation matrix
+    rot_matrix = np.array([[r00, r01, r02],
+                           [r10, r11, r12],
+                           [r20, r21, r22]])
+                            
+    return rot_matrix
+
+def euler_from_quaternion(q):
+        """
+        Convert a quaternion into euler angles (roll, pitch, yaw)
+        roll is rotation around x in radians (counterclockwise)
+        pitch is rotation around y in radians (counterclockwise)
+        yaw is rotation around z in radians (counterclockwise)
+        """
+        x, y, z, w = q
+        t0 = +2.0 * (w * x + y * z)
+        t1 = +1.0 - 2.0 * (x * x + y * y)
+        roll_x = math.atan2(t0, t1)
+     
+        t2 = +2.0 * (w * y - z * x)
+        t2 = +1.0 if t2 > +1.0 else t2
+        t2 = -1.0 if t2 < -1.0 else t2
+        pitch_y = math.asin(t2)
+     
+        t3 = +2.0 * (w * z + x * y)
+        t4 = +1.0 - 2.0 * (y * y + z * z)
+        yaw_z = math.atan2(t3, t4)
+     
+        return roll_x, pitch_y, yaw_z # in radians
