@@ -54,6 +54,37 @@ def box2d_filter(box2d, points):
 
     return inbox, outbox, idx
 
+def is_points_inside_obb(points, center, size, angle_rad):
+    """ 
+    Returns a boolean array indicating whether each point is inside the OBB
+
+    Params:
+        points: list of [x, y]
+        center: box center [x, y]
+        size  : size of box [vx, vy]
+        angle_rad : heading of the box (in radians)
+    """
+    points = np.array(points)
+    center = np.array(center)
+    width, height = size[0], size[1]
+
+    # Compute the transformation matrix to align the OBB with the coordinate axes
+    transform_matrix = np.array([[np.cos(angle_rad), -np.sin(angle_rad)],
+                                 [np.sin(angle_rad), np.cos(angle_rad)]])
+
+    # Transform the points to the OBB coordinate system
+    transformed_points = points - center
+    transformed_points = np.dot(transformed_points, transform_matrix)
+
+    # Calculate the half-width and half-height of the OBB
+    half_width = width / 2
+    half_height = height / 2
+
+    # Check if each point is inside the OBB
+    is_inside = (np.abs(transformed_points[:, 0]) <= half_width) & (np.abs(transformed_points[:, 1]) <= half_height)
+
+    return is_inside
+
 def rotz(t):
     c = np.cos(t)
     s = np.sin(t)
@@ -392,5 +423,10 @@ def nms_visualizer(nms, *args):
 
 
 if __name__ == "__main__":
-    # test2d()
-    test3d()
+    points = np.array([[2, 1], [0, 0], [3, 4]])  # Example points
+    center = np.array([1, 2])  # OBB center coordinates
+    size = (4, 2) # OBB width, height
+    angle = 0  # OBB rotation angle in degrees
+
+    inside_mask = is_points_inside_obb(points, center, size, angle)
+    print(inside_mask)
