@@ -211,7 +211,7 @@ def get_3d_box(center, box_size, heading_angle):
         : rad scalar, clockwise from pos z axis
         center: tuple of (x,y,z)
     Output:
-        corners_3d: numpy array of shape (8,3) for 3D box cornders
+        corners_3d: numpy array of shape (8,3) for 3D box corners
     '''
     R = rotz(heading_angle)
     l, w, h = box_size
@@ -224,6 +224,26 @@ def get_3d_box(center, box_size, heading_angle):
     corners_3d[2, :] = corners_3d[2, :] + center[2]
     corners_3d = np.transpose(corners_3d)
     return corners_3d
+
+def get_2d_box(center, box_size, heading_angle):
+    ''' Calculate 2D bounding box corners from its parameterization.
+
+    Input:heading_angle
+        box_size: tuple of (l,w)
+        : rad scalar, clockwise from pos z axis
+        center: tuple of (x,y)
+    Output:
+        corners_2d: numpy array of shape (4,2) for 2D box corners
+    '''
+    R = rotz(heading_angle)[:2, :2]
+    l, w = box_size
+    x_corners = [l/2, l/2, -l/2, -l/2]
+    y_corners = [w/2, -w/2, -w/2, w/2]
+    corners_2d = np.dot(R, np.vstack([x_corners, y_corners]))
+    corners_2d[0, :] = corners_2d[0, :] + center[0]
+    corners_2d[1, :] = corners_2d[1, :] + center[1]
+    corners_2d = np.transpose(corners_2d)
+    return corners_2d
 
 def polygon_clip(subjectPolygon, clipPolygon):
    """ Clip a polygon with another polygon.
