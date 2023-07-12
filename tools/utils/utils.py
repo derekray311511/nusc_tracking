@@ -1,8 +1,15 @@
 from collections import deque
 from datetime import datetime
+import time
 import os, sys
 import pytz
 import json
+
+def cal_func_time(func, **kargs):
+    start = time.time()
+    ret = func(**kargs)
+    end = time.time()
+    return ret, end - start
 
 def mkdir_or_exist(dir_name, mode=0o777):
     if dir_name == '':
