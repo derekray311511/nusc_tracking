@@ -192,6 +192,7 @@ class PubTracker(object):
         self.det_th = detection_th  # detection threshold
         self.del_th = deletion_th  # deletion threshold
         self.use_vel = use_vel
+        self.loaded_model = None
 
         print("Use hungarian: {}".format(hungarian))
 
@@ -335,6 +336,11 @@ class PubTracker(object):
                 track['translation'][1] = track['KF'].x[1]
                 track['velocity'][0] = track['KF'].x[2]
                 track['velocity'][1] = track['KF'].x[3]
+            self.tracks[m[1]]['detection_score'] = np.clip(self.tracks[m[1]]['detection_score'] - self.noise,
+                                                           a_min=0.0, a_max=1.0)
+            # update detection score
+            track['detection_score'] = update_function(self, track, m, self.loaded_model)['detection_score']
+
             ret.append(track)
 
         # add unmatched resources as new 'born' tracklets
