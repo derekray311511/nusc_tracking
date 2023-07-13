@@ -39,3 +39,17 @@ LIDAR_TRACKER:
     detection_th: 0.025
     deletion_th: 0.0
     use_vel: True
+
+VISUALIZER:
+    vizCategories:
+        - 'bicycle'
+        - 'bus'
+        - 'car'
+        - 'motorcycle'
+        - 'trailer'
+        - 'truck'
+        - 'pedestrian'
+    range: [200, 200]
+    windowSize: [1000, 1000]
+    imgSize: [1600, 1600]
+    duration: 0.1

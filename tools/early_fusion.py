@@ -108,8 +108,12 @@ class nusc_dataset:
     def get_det_meta(self):
         return self.det_res['meta']
 
-    def get_det_results(self, bbox_th):
-        return self.filter_box(self.det_res['results'], bbox_th)
+    def get_det_results(self, bbox_th=0.0, categories=None):
+        """
+        bbox_th: Filter bboxes which have scores below bbox_th
+        categories: Filter bboxes by category (if categories is None then doesn't filter by category) 
+        """
+        return self.filter_box(self.det_res['results'], bbox_th, categories)
 
     def get_frames_meta(self):
         return self.frames['frames']
@@ -154,14 +158,16 @@ class nusc_dataset:
 
         return ret
 
-    def filter_box(self, det_res, th):
+    def filter_box(self, det_res, th=0.0, categories=None):
         print("======")
-        print(f"Filtering bboxes by threshold {th}...", end='')
+        print(f"Filtering bboxes by threshold {th} and category...", end='')
         ret_dict = {}
         for i, (token, bboxes) in enumerate(det_res.items()):
             ret_bboxes = []
             for bbox in bboxes:
                 if bbox['detection_score'] < th:
+                    continue
+                if categories and bbox['detection_name'] not in categories:
                     continue
                 ret_bboxes.append(bbox)
             ret_dict.update({token: ret_bboxes})
@@ -289,11 +295,11 @@ def main(parser) -> None:
     # Build Vizualizer
     if args.viz:
         trackViz = TrackVisualizer(
-            nusc_trk_name=NUSCENES_TRACKING_NAMES, 
-            range=(200, 200), 
-            windowSize=(1000, 1000), 
-            imgSize=(1600, 1600),
-            duration=0.1
+            viz_cat=cfg["VISUALIZER"]["vizCategories"], 
+            range=cfg["VISUALIZER"]["range"], 
+            windowSize=cfg["VISUALIZER"]["windowSize"], 
+            imgSize=cfg["VISUALIZER"]["imgSize"],
+            duration=cfg["VISUALIZER"]["duration"],
         )
 
     # prepare writen output file
@@ -311,7 +317,7 @@ def main(parser) -> None:
     }
 
     # Load detection results
-    detections = dataset.get_det_results(cfg["DETECTION"]["bbox_score"])
+    detections = dataset.get_det_results(cfg["DETECTION"]["bbox_score"], NUSCENES_TRACKING_NAMES)
     frames = dataset.get_frames_meta()
     len_frames = len(frames)
 

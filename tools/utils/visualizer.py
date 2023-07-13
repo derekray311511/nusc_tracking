@@ -10,13 +10,13 @@ from copy import deepcopy
 class TrackVisualizer:
     def __init__(
         self, 
-        nusc_trk_name: list,
+        viz_cat: list,
         range: tuple = (100, 100),
         windowSize: tuple = (800, 800),
         imgSize: tuple = (1600, 1600), 
         duration: float = 0.5,
     ):
-        self.NUSCENES_TRACKING_NAMES = nusc_trk_name
+        self.viz_cat = viz_cat
         self.range = range
         self.height = imgSize[0]
         self.width = imgSize[1]
@@ -28,8 +28,11 @@ class TrackVisualizer:
         self.image = np.ones((self.height, self.width, 3), dtype=np.uint8) * 50
         
         cv2.resizeWindow(self.windowName, windowSize)
+        print(f"Visualize category: {self.viz_cat}")
+        print(f"Visualize range: {self.range}")
         print(f"res: {self.resolution}")
-        print(f"H, W: {self.height, self.width}")
+        print(f"Image size: {self.height, self.width}")
+        print(f"duration: {self.duration}")
 
     def reset(self):
         self.image = np.ones((self.height, self.width, 3), dtype=np.uint8) * 50
