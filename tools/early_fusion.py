@@ -9,6 +9,7 @@ import math
 import numpy as np
 import shutil
 import tf
+import yaml
 
 from nuscenes import NuScenes
 from nuscenes.utils import splits
@@ -51,28 +52,23 @@ NUSCENE_CLS_VELOCITY_ERROR = {
 }
 
 class nusc_dataset:
-    def __init__(
-        self, 
-        nusc_version='v1.0-trainval', 
-        split='val', 
-        nusc_path='/data/nuscenes',
-        det_result_path='data/detection_result.json',
-        frame_meta_path='data/frames_meta.json',
-        radar_pc_path='data/radar_PC/radar_PC_13Hz_with_vcomp.json',
-    ):
+    def __init__(self, cfg):
+        self.nusc_version = cfg["nusc_version"]
+        self.dataroot = cfg["dataroot"]
         # self.nusc = NuScenes(version=nusc_version, dataroot=nusc_path, verbose=True)
-        self.det_res = self.load_detections(det_result_path)
-        self.frames = self.load_frames_meta(frame_meta_path)
-        self.radar_PCs = self.load_radar_pc(radar_pc_path)
+        self.split = cfg["split"]
+        self.det_res = self.load_detections(cfg["lidar_det_path"])
+        self.frames = self.load_frames_meta(cfg["frames_meta_path"])
+        self.radar_PCs = self.load_radar_pc(cfg["radar_pc_path"])
         self.key_radar_PCs = self.load_key_radar_pc()
-        if split == 'train':
+        if self.split == 'train':
             self.scene_names = splits.train
-        elif split == 'val':
+        elif self.split == 'val':
             self.scene_names = splits.val
-        elif split == 'test':
+        elif self.split == 'test':
             sys.exit("Not support test data yet!")
         else:
-            sys.exit(f"No split type {split}!")
+            sys.exit(f"No split type {self.split}!")
 
     def load_detections(self, path):
         with open(path, 'rb') as f:
@@ -177,15 +173,24 @@ class RadarSegmentor:
     Segment radar targets using LiDAR detection
 
     param:
-
+        categories: list of nuscenes detection category to be used
     """
-    def __init__(self):
+    def __init__(self, cfg):
+        self.categories = cfg["detCategories"]
+        self.expand_rotio = cfg["expand_ratio"]
         self.id_count = 0
         self.radarSegmentation = None   # radar segmentation that is already grouped by LiDAR
 
     def reset(self):
         self.id_count = 0
         self.radarSegmentation = None
+
+    def filterDetByCat(self, det):
+        filtered_det = []
+        for obj in det:
+            if obj['detection_name'] in self.categories:
+                filtered_det.append(obj)
+        return filtered_det
 
     def run(self, radarTargets, lidarDet):
         """ (Global pose)
@@ -195,6 +200,9 @@ class RadarSegmentor:
         lidarDet: nusc_det : list of {'translation': [x, y, z], 'rotation': [w, x, y, z], 'size': [x, y, z], 'velocity': [vx, vy], 'detection_name': s, 'detection_score': s, 'sample_token': t}
         """
         radarSegmentation = []
+
+        # Filter LiDAR detection by name
+        lidarDet = self.filterDetByCat(lidarDet)
 
         # Sort the bboxes by detection scores
         lidarDet.sort(reverse=True, key=lambda box:box['detection_score'])
@@ -208,8 +216,9 @@ class RadarSegmentor:
 
         # Segment radar targets
         for det in lidarDet:
+            ratio = self.expand_rotio
             center = det['translation'][:2]
-            size = [det['size'][1], det['size'][0]]
+            size = [det['size'][1] * ratio , det['size'][0] * ratio]
             row, pitch, angle = euler_from_quaternion(q_to_xyzw(det['rotation']))
             inbox_idxs = is_points_inside_obb(pts, center, size, angle)
             
@@ -235,44 +244,21 @@ class RadarSegmentor:
 
 def get_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="LRFusion Tracking")
-    parser.add_argument("--split", type=str, default="val", choices=["train", "val"])
-    parser.add_argument("--bbox-score", type=float, default=None)
-    parser.add_argument("--out-dir", type=str, default="data/track_results")
-
-    parser.add_argument("--tracker", type=str, default='PointTracker')
-    parser.add_argument("--min_hits", type=int, default=1)
-    parser.add_argument("--max_age", type=int, default=6)
-    parser.add_argument("--det_th", type=float, default=0.0)
-    parser.add_argument("--del_th", type=float, default=0.0)
-    parser.add_argument("--active_th", type=float, default=1.0)
-    parser.add_argument("--update_function", type=str, default=None)
-    parser.add_argument("--score_decay", type=float, default=0.15)
-    parser.add_argument("--use_nms", type=int, default=0)
-    parser.add_argument("--nms_th", type=float, default=0.5)
-    parser.add_argument("--use_vel", type=int, default=1)
-    parser.add_argument("--vel_fusion", type=int, default=0)
+    parser.add_argument("config", metavar="CONFIG_FILE")
+    parser.add_argument("--workspace", type=str, default="/home/Student/Tracking")
+    parser.add_argument("--out-dir", type=str, default="/data/early_fusion_track_results/Test")
     parser.add_argument("--evaluate", type=int, default=0)
-    parser.add_argument("--dataroot", type=str, default='data/nuscenes')
-    parser.add_argument("--workspace", type=str, default='/home/Student/Tracking')
-    parser.add_argument("--detection_path", type=str, default='data/detection_result.json')
-    parser.add_argument("--frames_meta_path", type=str, default='data/frames_meta.json')
-    parser.add_argument("--radar_fusion", type=int, default=1)
-    parser.add_argument("--radar_pc_path", type=str, default='data/radar_PC/radar_PC_13Hz_with_vcomp.json')
-
     parser.add_argument("--save_log", action="store_true")
     parser.add_argument("--viz", action="store_true")
+    parser.add_argument("--show_delay", action="store_true")
     return parser
 
 def main(parser) -> None:
     args, opts = parser.parse_known_args()
-
-    # Notice
-    if args.radar_fusion:
-        print(f"======\nRunning LRFusion using LiDAR detection and Radar targets\n======")
-    if args.vel_fusion:
-        print("Using LiDAR detection to refine radar velocity")
+    cfg = yaml.safe_load(open(args.config))
 
     # Prepare results saving path / Copy parameters and code
+    print(f"CONFIG:\n{yaml.dump(cfg, sort_keys=False)}\n")
     root_path = args.out_dir
     track_res_path = os.path.join(root_path, 'tracking_result.json')
     mkdir_or_exist(os.path.dirname(track_res_path))
@@ -280,30 +266,24 @@ def main(parser) -> None:
         log_parser_args(root_path, args)
         shutil.copyfile(os.path.join(args.workspace, 'tools/early_fusion.sh'), os.path.join(root_path, 'early_fusion.sh'), follow_symlinks=True)
         shutil.copyfile(os.path.join(args.workspace, 'tools/early_fusion.py'), os.path.join(root_path, 'early_fusion.py'), follow_symlinks=True)
+        shutil.copyfile(os.path.join(args.workspace, 'configs/early_fusion.yaml'), os.path.join(root_path, 'early_fusion.yaml'), follow_symlinks=True)
 
     # Build data preprocessing for track
-    dataset = nusc_dataset(
-        nusc_version='v1.0-trainval',
-        split=args.split,
-        nusc_path=args.dataroot,
-        det_result_path=args.detection_path,
-        frame_meta_path=args.frames_meta_path,
-        radar_pc_path=args.radar_pc_path,
-    )
+    dataset = nusc_dataset(cfg["DATASET"])
 
     # Build Trackers and Segmentor
-    radarSeg = RadarSegmentor()
+    radarSeg = RadarSegmentor(cfg["SEGMENTOR"])
     lidar_tracker = lidarTracker(
-        hungarian=False,
-        max_age=args.max_age,
-        active_th=args.active_th,
-        min_hits=args.min_hits,
-        score_update=args.update_function,
-        noise=args.score_decay,
-        deletion_th=args.del_th,
-        detection_th=args.det_th,
-        use_vel=args.use_vel,
-        tracker=args.tracker,
+        hungarian=cfg["LIDAR_TRACKER"]["hungarian"],
+        max_age=cfg["LIDAR_TRACKER"]["max_age"],
+        active_th=cfg["LIDAR_TRACKER"]["active_th"],
+        min_hits=cfg["LIDAR_TRACKER"]["min_hits"],
+        score_update=cfg["LIDAR_TRACKER"]["update_function"],
+        noise=cfg["LIDAR_TRACKER"]["score_decay"],
+        deletion_th=cfg["LIDAR_TRACKER"]["deletion_th"],
+        detection_th=cfg["LIDAR_TRACKER"]["detection_th"],
+        use_vel=cfg["LIDAR_TRACKER"]["use_vel"],
+        tracker=cfg["LIDAR_TRACKER"]["tracker"],
     )
 
     # Build Vizualizer
@@ -331,7 +311,7 @@ def main(parser) -> None:
     }
 
     # Load detection results
-    detections = dataset.get_det_results(args.bbox_score)
+    detections = dataset.get_det_results(cfg["DETECTION"]["bbox_score"])
     frames = dataset.get_frames_meta()
     len_frames = len(frames)
 
@@ -360,8 +340,8 @@ def main(parser) -> None:
         # Get LiDAR detection for current frame
         det = detections[token]
 
-        if args.use_nms:
-            det, _ = nms(det, args.nms_th)
+        if cfg["DETECTION"]["use_nms"]:
+            (det, _), nmsDelay = cal_func_time(nms, boxes=det, iou_th=cfg["DETECTION"]["nms_th"])
 
         # Get Radar targets
         radar_pc = dataset.get_key_radar_pc(token)
@@ -377,12 +357,11 @@ def main(parser) -> None:
 
         # Radar segmentation with LiDAR detection
         det_copy = deepcopy(det)
-        segResult = radarSeg.run(radar_pc, det)
-        print(f"Radar segmented to {radarSeg.id_count} groups")
+        segResult, segDelay = cal_func_time(radarSeg.run, radarTargets=radar_pc, lidarDet=det)
         radarSeg.reset()
 
         # Tracking for LiDAR and Radar respectively
-        lidar_trks = lidar_tracker.step_centertrack(det, time_lag)
+        lidar_trks, LtrkDelay = cal_func_time(lidar_tracker.step_centertrack, results=det, time_lag=time_lag)
         lidar_active_trks = []
         for trk in lidar_trks:
             if not trk['active']: continue
@@ -418,8 +397,11 @@ def main(parser) -> None:
             _, delay2 = cal_func_time(trackViz.draw_det_bboxes, nusc_det=det_copy, trans=trans)
             _, delay3 = cal_func_time(trackViz.draw_det_bboxes, nusc_det=lidar_active_trks, trans=trans, BGRcolor=(52, 171, 235))
             trackViz.show()
-            print(f"viz pts delay: {delay1}")
-            print(f"viz trk delay: {delay3}")
+            if args.show_delay:
+                print(f"nms delay: {nmsDelay / 1e-3: .2f} ms")
+                print(f"Radar seg delay: {segDelay / 1e-3: .2f} ms")
+                print(f"LiDAR track delay: {LtrkDelay / 1e-3: .2f} ms")
+                print(f"viz delay - pts:{delay1 / 1e-3: .2f}, det:{delay2 / 1e-3: .2f}, trk:{delay3 / 1e-3: .2f} ms")
 
     cv2.destroyAllWindows()
 

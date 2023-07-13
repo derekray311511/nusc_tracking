@@ -49,7 +49,6 @@ class TrackVisualizer:
         img = cv2.resize(img, (new_H, new_W))
         y, x = self.height // 2, self.width // 2
         roi = self.image[y - img.shape[0] // 2 : y + img.shape[0] // 2, x - img.shape[1] // 2 : x + img.shape[1] // 2]
-        print(roi.dtype, img.dtype)
         result = cv2.add(roi, img)
         self.image[y - img.shape[0] // 2:y + img.shape[0] // 2, x - img.shape[1] // 2:x + img.shape[1] // 2] = result
 

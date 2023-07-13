@@ -1,0 +1,41 @@
+DATASET:
+    nusc_version: "v1.0-trainval"
+    split: "val"
+    dataroot: "/data/nuscenes"
+    lidar_det_path: "/data/track_result_bboxth-0.0/detection_result.json"
+    radar_pc_path: "/data/radar_PC/radar_PC_13Hz_with_vcomp.json"
+    frames_meta_path: "/data/meta_data/frames_meta.json"
+
+EVALUATE:
+    dataroot: "/data/small_data2"
+    out_dir: ${OUT_DIR}
+    range: "default"
+    tp_dist: "default"
+
+DETECTION: 
+    bbox_score: 0.01
+    use_nms: True
+    nms_th: 0.5
+
+SEGMENTOR:
+    detCategories:
+        - 'bicycle'
+        - 'bus'
+        - 'car'
+        - 'motorcycle'
+        - 'trailer'
+        - 'truck'
+        # - 'pedestrian'
+    expand_ratio: 1.2
+    
+LIDAR_TRACKER:
+    tracker: 'PointTracker' # KF / PointTracker
+    hungarian: False
+    max_age: 6
+    min_hits: 1
+    active_th: 1.0
+    update_function: 'multiplication'
+    score_decay: 0.15
+    detection_th: 0.025
+    deletion_th: 0.0
+    use_vel: True
