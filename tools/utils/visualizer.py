@@ -4,6 +4,7 @@ import itertools
 
 from .geometry_utils import *
 from .box_utils import get_3d_box, get_2d_box
+from .utils import encodeCategory, decodeCategory, get_trk_colormap
 from scipy.spatial.transform import Rotation as R
 from copy import deepcopy
 
@@ -17,6 +18,7 @@ class TrackVisualizer:
         duration: float = 0.5,
     ):
         self.viz_cat = viz_cat
+        self.trk_colorMap = get_trk_colormap()
         self.range = range
         self.height = imgSize[0]
         self.width = imgSize[1]
@@ -88,19 +90,28 @@ class TrackVisualizer:
             convex_contour = cv2.convexHull(np.array(local_pts, dtype=int))
             cv2.drawContours(self.image, [convex_contour], 0, BGRcolor, 2)
 
-    def draw_radar_seg(self, radarSeg: np.ndarray, trans: np.ndarray, colorID=True, contours=True):
+    def draw_radar_seg(self, radarSeg: np.ndarray, trans: np.ndarray, colorID=False, colorName=False, contours=True):
+        if colorID and colorName:
+            assert "colorID and colorName can not be True simultaneously"
         if colorID:
             for k, g in itertools.groupby(radarSeg, lambda x: x[5]):
                 g = list(g)
-                # print(k, len(g))
+                BGRcolor = getColorFromID(ID=k)
                 if k == -1:  # id == -1
+                    self.draw_radar_pts(g, trans, BGRcolor=BGRcolor, showContours=False)
+                else:
+                    self.draw_radar_pts(g, trans, BGRcolor=BGRcolor, showContours=contours)
+        elif colorName:
+            for k, g in itertools.groupby(radarSeg, lambda x: x[5]):
+                g = list(g)
+                cat_num = int(g[0][6])
+                cat_name = decodeCategory([cat_num], self.viz_cat)[0]
+                if cat_num == -1:  # id == -1
                     B, G, R = 100, 100, 100 # Gray color
                     self.draw_radar_pts(g, trans, BGRcolor=(B, G, R), showContours=False)
                 else:
-                    B = ((50 + 50*k) % 255 + 155) % 255     # 155~255
-                    G = ((50 + 30*k) % 255 + 155) % 255     # 155~255
-                    R = ((100 + 20*k) % 100 + 155) % 255    # 155~255
-                    self.draw_radar_pts(g, trans, BGRcolor=(B, G, R), showContours=contours)
+                    BGRcolor = self.trk_colorMap[cat_name]
+                    self.draw_radar_pts(g, trans, BGRcolor=BGRcolor, showContours=contours)
         else:
             self.draw_radar_pts(radarSeg, trans) 
 
@@ -132,7 +143,7 @@ class TrackVisualizer:
             corners.append(corner)
         return np.array(corners)
 
-    def draw_det_bboxes(self, nusc_det: list, trans: np.ndarray, BGRcolor=(255, 150, 150)):
+    def draw_det_bboxes(self, nusc_det: list, trans: np.ndarray, BGRcolor=(255, 150, 150), colorName=False):
         """Param :
 
         nusc_det : list of {'translation': [x, y, z], 'rotation': [w, x, y, z], 'size': [x, y, z], 'velocity': [vx, vy], 'detection_name': s, 'detection_score': s, 'sample_token': t}
@@ -145,8 +156,16 @@ class TrackVisualizer:
             det['translation'] = np.array(det['translation']) / self.resolution
             det['translation'][:2] = det['translation'][:2] + np.array([self.height // 2, self.width // 2])
             det['size'] = np.array(det['size']) / self.resolution
-        corners2d = self.getBoxCorners2d(nusc_det)
-        self.draw_bboxes(corners2d, BGRcolor)
+        if not colorName:   # Draw all boxes using same BGRcolor
+            corners2d = self.getBoxCorners2d(nusc_det)
+            self.draw_bboxes(corners2d, BGRcolor)
+        else:   # Draw boxes by detection_name
+            for k, g in itertools.groupby(nusc_det, lambda x: x['detection_name']):
+                g_det = list(g)
+                cat_num = encodeCategory([k], self.viz_cat)[0]
+                BGRcolor = self.trk_colorMap[k]
+                corners2d = self.getBoxCorners2d(g_det)
+                self.draw_bboxes(corners2d, BGRcolor)
         
     def show(self):
         """
@@ -155,6 +174,15 @@ class TrackVisualizer:
         self.image = cv2.flip(self.image, 0)
         cv2.imshow(self.windowName, self.image)
         self.reset()
+
+def getColorFromID(baseColor=(100, 100, 100), colorRange=(155, 255), ID=-1):
+    if ID == -1:  # id == -1
+        B, G, R = baseColor # Gray color
+    else:
+        B = ((25 + 50*ID) % (255 - colorRange[0]) + colorRange[0]) % colorRange[1]     # colorRange[0]~colorRange[1]
+        G = ((50 + 30*ID) % (255 - colorRange[0]) + colorRange[0]) % colorRange[1]     # colorRange[0]~colorRange[1]
+        R = ((100 + 20*ID) % (255 - colorRange[0]) + colorRange[0]) % colorRange[1]    # colorRange[0]~colorRange[1]
+    return (B, G, R)
 
 if __name__ == "__main__":
     trackViz = TrackVisualizer()

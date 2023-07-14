@@ -19,11 +19,13 @@ from pyquaternion import Quaternion
 from tqdm import tqdm
 from copy import deepcopy
 from utils.utils import log_parser_args, mkdir_or_exist, cal_func_time
+from utils.utils import encodeCategory, decodeCategory
 from utils.box_utils import get_3d_box_8corner, get_3d_box_2corner
 from utils.box_utils import nms, is_points_inside_obb
 from utils.geometry_utils import *
 from utils.visualizer import TrackVisualizer
 from tracker import PubTracker as lidarTracker
+from early_fusion_tracker import PubTracker as radarTracker
 
 NUSCENES_TRACKING_NAMES = [
     'bicycle',
@@ -57,6 +59,7 @@ class nusc_dataset:
         self.dataroot = cfg["dataroot"]
         # self.nusc = NuScenes(version=nusc_version, dataroot=nusc_path, verbose=True)
         self.split = cfg["split"]
+        self.categories = NUSCENES_TRACKING_NAMES
         self.det_res = self.load_detections(cfg["lidar_det_path"])
         self.frames = self.load_frames_meta(cfg["frames_meta_path"])
         self.radar_PCs = self.load_radar_pc(cfg["radar_pc_path"])
@@ -200,7 +203,7 @@ class RadarSegmentor:
 
     def run(self, radarTargets, lidarDet):
         """ (Global pose)
-        Returns radar targets with id: list of [x, y, z, vx, vy, id]
+        Returns radar targets with id: list of [x, y, z, vx, vy, id, cat_num]
 
         radarTargets: list of [x, y, z, vx, vy]
         lidarDet: nusc_det : list of {'translation': [x, y, z], 'rotation': [w, x, y, z], 'size': [x, y, z], 'velocity': [vx, vy], 'detection_name': s, 'detection_score': s, 'sample_token': t}
@@ -225,20 +228,26 @@ class RadarSegmentor:
             ratio = self.expand_rotio
             center = det['translation'][:2]
             size = [det['size'][1] * ratio , det['size'][0] * ratio]
+            cat_num = encodeCategory([det['detection_name']], self.categories)[0]
             row, pitch, angle = euler_from_quaternion(q_to_xyzw(det['rotation']))
             inbox_idxs = is_points_inside_obb(pts, center, size, angle)
             
             # Give radar targets segmentation id
             temp_targets = radarTargets[inbox_idxs]
-            if len(temp_targets) > 0:
-                seg = np.hstack([temp_targets, (np.ones(len(temp_targets)) * (self.id_count)).reshape(-1, 1)])
-                radarSegmentation.append(seg)
-                self.id_count += 1
-                radarTargets = radarTargets[~inbox_idxs]
-                pts = pts[~inbox_idxs]
+            if len(temp_targets) == 0:
+                continue
+            temp_targets = np.hstack([temp_targets, (np.ones(len(temp_targets)) * (self.id_count)).reshape(-1, 1)])
+
+            # Give radar targets category name
+            temp_targets = np.hstack([temp_targets, cat_num * np.ones((len(temp_targets), 1))])
+
+            radarSegmentation.append(temp_targets)
+            self.id_count += 1
+            radarTargets = radarTargets[~inbox_idxs]
+            pts = pts[~inbox_idxs]
 
         # Give none segmented targets -1 as id
-        radarTargets = np.hstack([radarTargets, -np.ones(len(radarTargets)).reshape(-1, 1)])
+        radarTargets = np.hstack([radarTargets, -np.ones((len(radarTargets), 2))])
 
         if len(radarSegmentation) > 0:
             radarSegmentation = np.vstack([np.array(seg) for seg in radarSegmentation])
@@ -262,6 +271,7 @@ def get_parser() -> argparse.ArgumentParser:
 def main(parser) -> None:
     args, opts = parser.parse_known_args()
     cfg = yaml.safe_load(open(args.config))
+    cfg["EVALUATE"]["out_dir"] = args.out_dir
 
     # Prepare results saving path / Copy parameters and code
     print(f"CONFIG:\n{yaml.dump(cfg, sort_keys=False)}\n")
@@ -290,6 +300,18 @@ def main(parser) -> None:
         detection_th=cfg["LIDAR_TRACKER"]["detection_th"],
         use_vel=cfg["LIDAR_TRACKER"]["use_vel"],
         tracker=cfg["LIDAR_TRACKER"]["tracker"],
+    )
+    radar_tracker = radarTracker(
+        hungarian=cfg["RADAR_TRACKER"]["hungarian"],
+        max_age=cfg["RADAR_TRACKER"]["max_age"],
+        active_th=cfg["RADAR_TRACKER"]["active_th"],
+        min_hits=cfg["RADAR_TRACKER"]["min_hits"],
+        score_update=cfg["RADAR_TRACKER"]["update_function"],
+        noise=cfg["RADAR_TRACKER"]["score_decay"],
+        deletion_th=cfg["RADAR_TRACKER"]["deletion_th"],
+        detection_th=cfg["RADAR_TRACKER"]["detection_th"],
+        use_vel=cfg["RADAR_TRACKER"]["use_vel"],
+        tracker=cfg["RADAR_TRACKER"]["tracker"],
     )
 
     # Build Vizualizer
@@ -399,9 +421,9 @@ def main(parser) -> None:
 
             trans = dataset.get_4f_transform(ego_pose, inverse=True)
             trackViz.draw_ego_car(img_src="/data/car1.png")
-            _, delay1 = cal_func_time(trackViz.draw_radar_seg, radarSeg=segResult, trans=trans, colorID=True, contours=False)
-            _, delay2 = cal_func_time(trackViz.draw_det_bboxes, nusc_det=det_copy, trans=trans)
-            _, delay3 = cal_func_time(trackViz.draw_det_bboxes, nusc_det=lidar_active_trks, trans=trans, BGRcolor=(52, 171, 235))
+            _, delay1 = cal_func_time(trackViz.draw_radar_seg, radarSeg=segResult, trans=trans, colorID=True, colorName=False, contours=False)
+            _, delay2 = cal_func_time(trackViz.draw_det_bboxes, nusc_det=det_copy, trans=trans, colorName=False)
+            _, delay3 = cal_func_time(trackViz.draw_det_bboxes, nusc_det=lidar_active_trks, trans=trans, BGRcolor=(52, 171, 235), colorName=False)
             trackViz.show()
             if args.show_delay:
                 print(f"nms delay: {nmsDelay / 1e-3: .2f} ms")

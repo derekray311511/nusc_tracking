@@ -1,5 +1,6 @@
 from collections import deque
 from datetime import datetime
+from typing import Dict, Tuple
 import time
 import os, sys
 import pytz
@@ -66,3 +67,47 @@ class Trajectory:
                 self.trackers[track_id].update(None, None)
 
         return self.trackers
+
+def get_trk_colormap() -> Dict[str, Tuple[int, int, int]]:
+    """
+    Get the defined colormap.
+    :return: A mapping from the class names to the respective BGR values.
+    """
+
+    classname_to_color = {  # BGR.
+        "pedestrian": (230, 0, 0),  # Blue
+        "bicycle": (60, 20, 220),  # Crimson
+        "bus": (80, 127, 255),  # Coral
+        "car": (0, 158, 255),  # Orange
+        "motorcycle": (99, 61, 255),  # Red
+        "trailer": (0, 140, 255),  # Darkorange
+        "truck": (71, 99, 255),  # Tomato
+    }
+
+    return classname_to_color
+
+def encodeCategory(cats, categories):
+    """ Encode categories to numbers 
+    Param:
+        cats: list of categories (str)
+    Return:
+        ret: list of int
+    """
+    ret = []
+    for cat in cats:
+        num = categories.index(cat) if cat in categories else -1
+        ret.append(num)
+    return ret
+
+def decodeCategory(nums, categories):
+    """ Encode categories to numbers 
+    Param:
+        nums: list of int
+    Return:
+        ret: list of categories (str)
+    """
+    ret = []
+    for num in nums:
+        cat = categories[num] if num < len(categories) else None
+        ret.append(cat)
+    return ret
