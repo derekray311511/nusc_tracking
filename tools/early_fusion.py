@@ -421,9 +421,9 @@ def main(parser) -> None:
 
             trans = dataset.get_4f_transform(ego_pose, inverse=True)
             trackViz.draw_ego_car(img_src="/data/car1.png")
-            _, delay1 = cal_func_time(trackViz.draw_radar_seg, radarSeg=segResult, trans=trans, colorID=True, colorName=False, contours=False)
-            _, delay2 = cal_func_time(trackViz.draw_det_bboxes, nusc_det=det_copy, trans=trans, colorName=False)
-            _, delay3 = cal_func_time(trackViz.draw_det_bboxes, nusc_det=lidar_active_trks, trans=trans, BGRcolor=(52, 171, 235), colorName=False)
+            _, delay1 = cal_func_time(trackViz.draw_radar_seg, radarSeg=segResult, trans=trans, **cfg["VISUALIZER"]["radarSeg"])
+            _, delay2 = cal_func_time(trackViz.draw_det_bboxes, nusc_det=det_copy, trans=trans, **cfg["VISUALIZER"]["detBox"])
+            _, delay3 = cal_func_time(trackViz.draw_det_bboxes, nusc_det=lidar_active_trks, trans=trans, **cfg["VISUALIZER"]["trkBox"])
             trackViz.show()
             if args.show_delay:
                 print(f"nms delay: {nmsDelay / 1e-3: .2f} ms")

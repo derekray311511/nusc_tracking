@@ -1,5 +1,4 @@
 import copy
-
 import numpy as np
 import torch
 from filterpy.kalman import KalmanFilter
@@ -13,9 +12,9 @@ NUSCENES_TRACKING_NAMES = [
     'pedestrian',
     'trailer',
     'truck',
-    'construction_vehicle',
-    'barrier',
-    'traffic_cone',
+    # 'construction_vehicle',
+    # 'barrier',
+    # 'traffic_cone',
 ]
 
 # 99.9 percentile of the l2 velocity error distribution (per class / 0.5 second)
@@ -29,9 +28,9 @@ NUSCENE_CLS_VELOCITY_ERROR = {
     'pedestrian': 1,
     'motorcycle': 4,
     'bicycle': 2.5,
-    'construction_vehicle': 1,
-    'barrier': 1,
-    'traffic_cone': 1,
+    # 'construction_vehicle': 1,
+    # 'barrier': 1,
+    # 'traffic_cone': 1,
 }
 
 

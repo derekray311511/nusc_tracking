@@ -90,7 +90,7 @@ class TrackVisualizer:
             convex_contour = cv2.convexHull(np.array(local_pts, dtype=int))
             cv2.drawContours(self.image, [convex_contour], 0, BGRcolor, 2)
 
-    def draw_radar_seg(self, radarSeg: np.ndarray, trans: np.ndarray, colorID=False, colorName=False, contours=True):
+    def draw_radar_seg(self, radarSeg: np.ndarray, trans: np.ndarray, colorID=False, colorName=False, contours=True, **kwargs):
         if colorID and colorName:
             assert "colorID and colorName can not be True simultaneously"
         if colorID:
@@ -143,7 +143,7 @@ class TrackVisualizer:
             corners.append(corner)
         return np.array(corners)
 
-    def draw_det_bboxes(self, nusc_det: list, trans: np.ndarray, BGRcolor=(255, 150, 150), colorName=False):
+    def draw_det_bboxes(self, nusc_det: list, trans: np.ndarray, BGRcolor=(255, 150, 150), colorName=False, **kwargs):
         """Param :
 
         nusc_det : list of {'translation': [x, y, z], 'rotation': [w, x, y, z], 'size': [x, y, z], 'velocity': [vx, vy], 'detection_name': s, 'detection_score': s, 'sample_token': t}

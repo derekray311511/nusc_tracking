@@ -40,6 +40,18 @@ LIDAR_TRACKER:
     deletion_th: 0.0
     use_vel: True
 
+RADAR_TRACKER:
+    tracker: 'KF' # KF / PointTracker
+    hungarian: False
+    max_age: 6
+    min_hits: 1
+    active_th: 1.0
+    update_function: None
+    score_decay: 0.0
+    detection_th: 0.0
+    deletion_th: 0.0
+    use_vel: False
+
 VISUALIZER:
     vizCategories:
         - 'bicycle'
@@ -49,7 +61,17 @@ VISUALIZER:
         - 'trailer'
         - 'truck'
         - 'pedestrian'
-    range: [200, 200]
+    range: [120, 120]
     windowSize: [1000, 1000]
     imgSize: [1600, 1600]
     duration: 0.1
+    radarSeg:
+        colorID: True
+        colorName: False
+        contours: False
+    detBox:
+        colorName: False
+        BGRcolor: [255, 150, 150]
+    trkBox:
+        colorName: False
+        BGRcolor: [52, 171, 235]
