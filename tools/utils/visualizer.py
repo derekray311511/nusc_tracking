@@ -134,7 +134,7 @@ class TrackVisualizer:
             ret.append(object)
         return ret
 
-    def getBoxCorners2d(self, boxes):
+    def getBoxCorners2d(self, boxes: list) -> np.ndarray:
         corners = []
         for box in boxes:
             x, y, z = box['translation']
@@ -145,29 +145,36 @@ class TrackVisualizer:
             corners.append(corner)
         return np.array(corners)
 
-    def draw_det_bboxes(self, nusc_det: list, trans: np.ndarray, BGRcolor=(255, 150, 150), colorName=False, **kwargs):
+    def draw_det_bboxes(self, nusc_det: list, trans: np.ndarray, BGRcolor=(255, 150, 150), colorID=False, colorName=False, **kwargs):
         """Param :
 
         nusc_det : list of {'translation': [x, y, z], 'rotation': [w, x, y, z], 'size': [x, y, z], 'velocity': [vx, vy], 'detection_name': s, 'detection_score': s, 'sample_token': t}
         ego_pose : {'translation': [x, y, z], 'rotation': [w, x, y, z], 'timestamp': t, 'token' : t}
 
         """
+        if len(nusc_det) == 0:
+            return
         nusc_det = deepcopy(nusc_det)
         nusc_det = self.world2ego(nusc_det, trans)
         for det in nusc_det:
             det['translation'] = np.array(det['translation']) / self.resolution
             det['translation'][:2] = det['translation'][:2] + np.array([self.height // 2, self.width // 2])
             det['size'] = np.array(det['size']) / self.resolution
-        if not colorName:   # Draw all boxes using same BGRcolor
-            corners2d = self.getBoxCorners2d(nusc_det)
-            self.draw_bboxes(corners2d, BGRcolor)
-        else:   # Draw boxes by detection_name
+        if colorName:   # Draw boxes by detection_name
             for k, g in itertools.groupby(nusc_det, lambda x: x['detection_name']):
                 g_det = list(g)
                 cat_num = encodeCategory([k], self.viz_cat)[0]
                 BGRcolor = self.trk_colorMap[k]
                 corners2d = self.getBoxCorners2d(g_det)
                 self.draw_bboxes(corners2d, BGRcolor)
+        elif colorID and ('tracking_id' in nusc_det[0]):
+            for det in nusc_det:
+                BGRcolor = getColorFromID(ID=det['tracking_id'], colorRange=(50, 255))
+                corners2d = self.getBoxCorners2d([det])
+                self.draw_bboxes(corners2d, BGRcolor)
+        else:   # Draw all boxes using same BGRcolor
+            corners2d = self.getBoxCorners2d(nusc_det)
+            self.draw_bboxes(corners2d, BGRcolor)
 
     def _draw_grid(self, img, grid_shape, color=(0, 255, 0), thickness=1):
         h, w, _ = img.shape
@@ -218,7 +225,7 @@ class TrackVisualizer:
         cv2.imshow(self.windowName, self.image)
         self.reset()
 
-def getColorFromID(baseColor=(100, 100, 100), colorRange=(155, 255), ID=-1):
+def getColorFromID(baseColor=(100, 100, 100), colorRange=(155, 255), ID=-1) -> tuple:
     if ID == -1:  # id == -1
         B, G, R = baseColor # Gray color
     else:
