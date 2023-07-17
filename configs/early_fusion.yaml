@@ -44,13 +44,24 @@ RADAR_TRACKER:
     tracker: 'KF' # KF / PointTracker
     hungarian: False
     max_age: 6
-    min_hits: 2
+    min_hits: 1
     active_th: 1.0
     update_function: None
     score_decay: 0.0
     detection_th: 0.0
     deletion_th: 0.0
     use_vel: False
+
+FUSION:
+    hungarian: False
+    decay1: 0.0
+    decay2: 0.0
+    star: True
+    del_th: 0.0
+    min_hits: 1
+    v_min: 0.4
+    v_max: 1.9
+    v_weight: 0.8
 
 VISUALIZER:
     vizCategories:
@@ -73,6 +84,19 @@ VISUALIZER:
     detBox:
         colorName: False
         BGRcolor: [255, 150, 150]
+        draw_vel: True
     trkBox:
         colorName: False
+        colorID: False
         BGRcolor: [52, 171, 235]
+        draw_vel: True
+    radarTrkBox:
+        colorName: False
+        colorID: False
+        BGRcolor: [0, 255, 0]
+        draw_vel: True
+    fusionBox:
+        colorName: False
+        colorID: True
+        BGRcolor: [198, 235, 52]
+        draw_vel: True

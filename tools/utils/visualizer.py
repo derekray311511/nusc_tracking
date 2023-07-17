@@ -12,6 +12,7 @@ class TrackVisualizer:
     def __init__(
         self, 
         viz_cat: list,
+        windowName: str = "track",
         range_: tuple = (100, 100),
         windowSize: tuple = (800, 800),
         imgSize: tuple = (1600, 1600), 
@@ -26,7 +27,7 @@ class TrackVisualizer:
         self.resolution = self.range[0] / self.height
         self.play = True
         self.duration = duration
-        self.windowName = "Inputs"
+        self.windowName = windowName
         self.window = cv2.namedWindow(self.windowName, cv2.WINDOW_NORMAL)
         self.grid = grid
         self.image = np.ones((self.height, self.width, 3), dtype=np.uint8) * 50
@@ -64,10 +65,10 @@ class TrackVisualizer:
             p = np.round(p).astype(int)
             cv2.circle(self.image, p, 4, BGRcolor, -1)
 
-    def draw_bboxes(self, corners: np.ndarray, BGRcolor=(255, 150, 150)):
+    def draw_bboxes(self, corners: np.ndarray, BGRcolor=(255, 150, 150), thickness=2):
         for box in corners:
             box = np.round(box).astype(int)
-            cv2.drawContours(self.image, [box], 0, BGRcolor, 2)
+            cv2.drawContours(self.image, [box], 0, BGRcolor, thickness)
 
     def draw_radar_pts(self, radar_pc: list, trans: np.ndarray, BGRcolor=(50, 50, 255), showContours=False):
         """Param :
@@ -92,7 +93,15 @@ class TrackVisualizer:
             convex_contour = cv2.convexHull(np.array(local_pts, dtype=int))
             cv2.drawContours(self.image, [convex_contour], 0, BGRcolor, 2)
 
-    def draw_radar_seg(self, radarSeg: np.ndarray, trans: np.ndarray, colorID=False, colorName=False, contours=True, **kwargs):
+    def draw_radar_seg(
+        self, 
+        radarSeg: np.ndarray, 
+        trans: np.ndarray, 
+        colorID=False, 
+        colorName=False, 
+        contours=True, 
+        **kwargs
+    ):
         if colorID and colorName:
             assert "colorID and colorName can not be True simultaneously"
         if colorID:
@@ -145,7 +154,17 @@ class TrackVisualizer:
             corners.append(corner)
         return np.array(corners)
 
-    def draw_det_bboxes(self, nusc_det: list, trans: np.ndarray, BGRcolor=(255, 150, 150), colorID=False, colorName=False, **kwargs):
+    def draw_det_bboxes(
+        self, 
+        nusc_det: list, 
+        trans: np.ndarray, 
+        draw_vel: bool = False,
+        BGRcolor=(255, 150, 150), 
+        thickness=2,
+        colorID=False, 
+        colorName=False, 
+        **kwargs
+    ):
         """Param :
 
         nusc_det : list of {'translation': [x, y, z], 'rotation': [w, x, y, z], 'size': [x, y, z], 'velocity': [vx, vy], 'detection_name': s, 'detection_score': s, 'sample_token': t}
@@ -160,21 +179,37 @@ class TrackVisualizer:
             det['translation'] = np.array(det['translation']) / self.resolution
             det['translation'][:2] = det['translation'][:2] + np.array([self.height // 2, self.width // 2])
             det['size'] = np.array(det['size']) / self.resolution
+            det['velocity'] = np.array(det['velocity']) / self.resolution
+
         if colorName:   # Draw boxes by detection_name
             for k, g in itertools.groupby(nusc_det, lambda x: x['detection_name']):
                 g_det = list(g)
                 cat_num = encodeCategory([k], self.viz_cat)[0]
                 BGRcolor = self.trk_colorMap[k]
                 corners2d = self.getBoxCorners2d(g_det)
-                self.draw_bboxes(corners2d, BGRcolor)
+                self.draw_bboxes(corners2d, BGRcolor, thickness)
+                if draw_vel:
+                    self._draw_vel(g_det, BGRcolor, thickness)
         elif colorID and ('tracking_id' in nusc_det[0]):
             for det in nusc_det:
                 BGRcolor = getColorFromID(ID=det['tracking_id'], colorRange=(50, 255))
                 corners2d = self.getBoxCorners2d([det])
-                self.draw_bboxes(corners2d, BGRcolor)
+                self.draw_bboxes(corners2d, BGRcolor, thickness)
+                if draw_vel:
+                    self._draw_vel([det], BGRcolor, thickness)
         else:   # Draw all boxes using same BGRcolor
             corners2d = self.getBoxCorners2d(nusc_det)
-            self.draw_bboxes(corners2d, BGRcolor)
+            self.draw_bboxes(corners2d, BGRcolor, thickness)
+            if draw_vel:
+                self._draw_vel(nusc_det, BGRcolor, thickness)
+
+    def _draw_vel(self, nusc_det: list, BGRcolor=(255, 255, 255), thickness=1):
+        for det in nusc_det:
+            start_point = det['translation'][:2]
+            end_point = start_point + det['velocity'][:2]
+            start_point = np.round(start_point).astype(int)
+            end_point = np.round(end_point).astype(int)
+            self.image = cv2.arrowedLine(self.image, start_point, end_point, BGRcolor, thickness)
 
     def _draw_grid(self, img, grid_shape, color=(0, 255, 0), thickness=1):
         h, w, _ = img.shape
