@@ -318,7 +318,7 @@ def main(parser) -> None:
     if args.viz:
         trackViz = TrackVisualizer(
             viz_cat=cfg["VISUALIZER"]["vizCategories"], 
-            range=cfg["VISUALIZER"]["range"], 
+            range_=cfg["VISUALIZER"]["range"], 
             windowSize=cfg["VISUALIZER"]["windowSize"], 
             imgSize=cfg["VISUALIZER"]["imgSize"],
             duration=cfg["VISUALIZER"]["duration"],
@@ -396,6 +396,16 @@ def main(parser) -> None:
             trk['size'][0], trk['size'][1] = 1.2 * trk['size'][0], 1.2 * trk['size'][1]
             lidar_active_trks.append(trk)
 
+        # Format radarSeg to object tracking type
+        radarObjs = radar_tracker.formatForRadarSeg(segResult)
+        radar_trks, RtrkDelay = cal_func_time(radar_tracker.step_centertrack, results=radarObjs, time_lag=time_lag)
+        radar_active_trks = []
+        for trk in radar_trks:
+            if not trk['active']: continue
+            trk['size'] = [1.0, 1.0, 1.0]    # testing value
+            trk['rotation'] = [1.0, 0.0, 0.0, 0.0]    # testing value
+            radar_active_trks.append(trk)
+
         # Fusion module (ID arrangement)
 
 
@@ -424,6 +434,7 @@ def main(parser) -> None:
             _, delay1 = cal_func_time(trackViz.draw_radar_seg, radarSeg=segResult, trans=trans, **cfg["VISUALIZER"]["radarSeg"])
             _, delay2 = cal_func_time(trackViz.draw_det_bboxes, nusc_det=det_copy, trans=trans, **cfg["VISUALIZER"]["detBox"])
             _, delay3 = cal_func_time(trackViz.draw_det_bboxes, nusc_det=lidar_active_trks, trans=trans, **cfg["VISUALIZER"]["trkBox"])
+            trackViz.draw_det_bboxes(radar_active_trks, trans, (0, 255, 0), colorName=False)
             trackViz.show()
             if args.show_delay:
                 print(f"nms delay: {nmsDelay / 1e-3: .2f} ms")

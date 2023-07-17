@@ -1,8 +1,10 @@
 import copy
 import numpy as np
 import torch
+import itertools
 from filterpy.kalman import KalmanFilter
 from scipy.optimize import linear_sum_assignment
+from utils.utils import decodeCategory
 
 NUSCENES_TRACKING_NAMES = [
     'bicycle',
@@ -15,6 +17,7 @@ NUSCENES_TRACKING_NAMES = [
     # 'construction_vehicle',
     # 'barrier',
     # 'traffic_cone',
+    'background'
 ]
 
 # 99.9 percentile of the l2 velocity error distribution (per class / 0.5 second)
@@ -31,6 +34,7 @@ NUSCENE_CLS_VELOCITY_ERROR = {
     # 'construction_vehicle': 1,
     # 'barrier': 1,
     # 'traffic_cone': 1,
+    'background': 4
 }
 
 
@@ -207,6 +211,45 @@ class PubTracker(object):
     def reset(self):
         self.id_count = 0
         self.tracks = []
+
+    def _filterRadarByVelocity(self, radarSeg: np.ndarray, vel_th=0.5) -> np.ndarray:
+        # calculating Euclidean distance using linalg.norm()
+        vel = np.linalg.norm(radarSeg[:, 3:5], axis=1)
+        return radarSeg[vel > vel_th]
+
+    def _formatObj(self, trans, vel, cat, score):
+        obj = {
+            'translation': trans,
+            'velocity': vel,
+            'detection_name': cat,
+            'detection_score': score
+        }
+        return obj
+
+    def formatForRadarSeg(self, radarSeg):
+        """ Format radarSeg to object tracking type
+
+        Params:
+            radarSeg: list of [x, y, z, vx, vy, id, cat_num]
+        Returns:
+            radarObj: list of dict {'translation': [x, y, z], 'velocity': [vx, vy], 'detection_name': str}
+        """
+        ret = []
+        for k, g in itertools.groupby(radarSeg, lambda x: x[5]):
+            g = list(g)
+            if k == -1: # background radar targets (no category name)
+                g = self._filterRadarByVelocity(np.array(g), vel_th=1.0)
+                for t in g:
+                    obj = self._formatObj(np.array(t[:3]), np.array(t[3:5]), 'background', 0.5)
+                    ret.append(obj)
+            else:
+                cat_num = int(g[0][6])
+                cat_name = decodeCategory([cat_num], self.tracking_names)[0]
+                translation = np.mean(np.array(g)[:, :3], axis=0)
+                velocity = np.mean(np.array(g)[:, 3:5], axis=0)
+                obj = self._formatObj(translation, velocity, cat_name, score=0.5)   # Hardcore score currently
+                ret.append(obj)
+        return ret
 
     def step_centertrack(self, results, time_lag):
         """

@@ -12,14 +12,15 @@ class TrackVisualizer:
     def __init__(
         self, 
         viz_cat: list,
-        range: tuple = (100, 100),
+        range_: tuple = (100, 100),
         windowSize: tuple = (800, 800),
         imgSize: tuple = (1600, 1600), 
         duration: float = 0.5,
+        grid: bool = True,
     ):
         self.viz_cat = viz_cat
         self.trk_colorMap = get_trk_colormap()
-        self.range = range
+        self.range = range_
         self.height = imgSize[0]
         self.width = imgSize[1]
         self.resolution = self.range[0] / self.height
@@ -27,6 +28,7 @@ class TrackVisualizer:
         self.duration = duration
         self.windowName = "Inputs"
         self.window = cv2.namedWindow(self.windowName, cv2.WINDOW_NORMAL)
+        self.grid = grid
         self.image = np.ones((self.height, self.width, 3), dtype=np.uint8) * 50
         
         cv2.resizeWindow(self.windowName, windowSize)
@@ -166,12 +168,53 @@ class TrackVisualizer:
                 BGRcolor = self.trk_colorMap[k]
                 corners2d = self.getBoxCorners2d(g_det)
                 self.draw_bboxes(corners2d, BGRcolor)
+
+    def _draw_grid(self, img, grid_shape, color=(0, 255, 0), thickness=1):
+        h, w, _ = img.shape
+        rows, cols = grid_shape
+        dy, dx = h / rows, w / cols
+
+        # draw vertical lines
+        for x in np.linspace(start=dx, stop=w-dx, num=cols-1):
+            x = int(round(x))
+            cv2.line(img, (x, 0), (x, h), color=color, thickness=thickness)
+
+        # draw horizontal lines
+        for y in np.linspace(start=dy, stop=h-dy, num=rows-1):
+            y = int(round(y))
+            cv2.line(img, (0, y), (w, y), color=color, thickness=thickness)
+
+        return img
+
+    def draw_grid(self, diff=10, color=(0, 255, 0), thickness=1, alpha=1.0):
+        """ Draw grid from image center """
+        h, w, _ = self.image.shape
+        color = np.array(color) * alpha
+
+        # draw vertical lines
+        x = w // 2
+        while(x < w):
+            cv2.line(self.image, (x, 0), (x, h), color=color, thickness=thickness)
+            cv2.line(self.image, (w-x, 0), (w-x, h), color=color, thickness=thickness)
+            x += int(round((diff / self.resolution)))
+        
+        # draw horizontal lines
+        y = h // 2
+        while(y < h):
+            cv2.line(self.image, (0, y), (w, y), color=color, thickness=thickness)
+            cv2.line(self.image, (0, h-y), (w, h-y), color=color, thickness=thickness)
+            y += int(round((diff / self.resolution)))
+
+        return self.image
         
     def show(self):
         """
         show and reset the image
         """
         self.image = cv2.flip(self.image, 0)
+        if self.grid:
+            self.draw_grid(diff=50, color=(0, 0, 255), thickness=5, alpha=0.5)
+            self.draw_grid(diff=10, color=(255, 255, 255), thickness=2, alpha=0.3)
         cv2.imshow(self.windowName, self.image)
         self.reset()
 
