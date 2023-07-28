@@ -400,6 +400,7 @@ def main(parser) -> None:
         # Get LiDAR detection for current frame
         det = detections[token]
 
+        nmsDelay = 0
         if cfg["DETECTION"]["use_nms"]:
             (det, _), nmsDelay = cal_func_time(nms, boxes=det, iou_th=cfg["DETECTION"]["nms_th"])
 
@@ -473,21 +474,21 @@ def main(parser) -> None:
                 trackViz2.grid = not trackViz2.grid
 
             trans = dataset.get_4f_transform(ego_pose, inverse=True)
+            viz_start = time.time()
             trackViz.draw_ego_car(img_src="/data/car1.png")
-            trackViz2.draw_ego_car(img_src="/data/car1.png")
-            _, delay1 = cal_func_time(trackViz.draw_radar_seg, radarSeg=segResult, trans=trans, **cfg["VISUALIZER"]["radarSeg"])
-            _, delay2 = cal_func_time(trackViz.draw_det_bboxes, nusc_det=det_for_viz, trans=trans, **cfg["VISUALIZER"]["detBox"])
-            _, delay3 = cal_func_time(trackViz.draw_det_bboxes, nusc_det=lidar_active_trks, trans=trans, **cfg["VISUALIZER"]["trkBox"])
+            trackViz.draw_radar_seg(radarSeg=segResult, trans=trans, **cfg["VISUALIZER"]["radarSeg"])
+            trackViz.draw_det_bboxes(nusc_det=det_for_viz, trans=trans, **cfg["VISUALIZER"]["detBox"])
+            trackViz.draw_det_bboxes(nusc_det=lidar_active_trks, trans=trans, **cfg["VISUALIZER"]["trkBox"])
             trackViz.draw_det_bboxes(radar_active_trks, trans, **cfg["VISUALIZER"]["radarTrkBox"])
+            trackViz2.draw_ego_car(img_src="/data/car1.png")
             trackViz2.draw_radar_seg(segResult, trans, **cfg["VISUALIZER"]["radarSeg"])
             trackViz2.draw_det_bboxes(fusion_active_trks, trans, **cfg["VISUALIZER"]["fusionBox"])
             trackViz.show()
             trackViz2.show()
+            viz_end = time.time()
             if args.show_delay:
                 print(f"nms delay: {nmsDelay / 1e-3: .2f} ms")
-                print(f"Radar seg delay: {segDelay / 1e-3: .2f} ms")
-                print(f"LiDAR track delay: {LtrkDelay / 1e-3: .2f} ms")
-                print(f"viz delay - pts:{delay1 / 1e-3: .2f}, det:{delay2 / 1e-3: .2f}, trk:{delay3 / 1e-3: .2f} ms")
+                print(f"viz delay:{(viz_end - viz_start) / 1e-3: .2f} ms")
 
     cv2.destroyAllWindows()
 
