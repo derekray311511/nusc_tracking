@@ -33,6 +33,7 @@ class TrackVisualizer:
         self.image = np.ones((self.height, self.width, 3), dtype=np.uint8) * 50
         
         cv2.resizeWindow(self.windowName, windowSize)
+        print(f"window: {self.windowName}")
         print(f"Visualize category: {self.viz_cat}")
         print(f"Visualize range: {self.range}")
         print(f"res: {self.resolution}")
@@ -87,6 +88,7 @@ class TrackVisualizer:
         local_pts = np.array(local_pts, dtype=float)
         local_pts = np.hstack([local_pts, np.ones((local_pts.shape[0], 1), dtype=float)])
         local_pts = (trans @ local_pts.T).T[:, :2] / self.resolution
+        local_pts = local_pts * np.array([1, -1])
         local_pts = local_pts + np.array([self.height // 2, self.width // 2])
         self.draw_points(local_pts, BGRcolor)
         if showContours:
@@ -159,6 +161,7 @@ class TrackVisualizer:
         nusc_det: list, 
         trans: np.ndarray, 
         draw_vel: bool = False,
+        draw_id: bool = False,
         BGRcolor=(255, 150, 150), 
         thickness=2,
         colorID=False, 
@@ -176,6 +179,12 @@ class TrackVisualizer:
         nusc_det = deepcopy(nusc_det)
         nusc_det = self.world2ego(nusc_det, trans)
         for det in nusc_det:
+            # Nusc to image x, y coordinates (Flip y axis)
+            det['translation'][:2] *= np.array([1, -1])
+            det['size'][:2] *= np.array([1, -1])
+            det['velocity'][:2] *= np.array([1, -1])
+            det['rotation'][0] *= -1
+            # Transform to image pixel level
             det['translation'] = np.array(det['translation']) / self.resolution
             det['translation'][:2] = det['translation'][:2] + np.array([self.height // 2, self.width // 2])
             det['size'] = np.array(det['size']) / self.resolution
@@ -190,6 +199,8 @@ class TrackVisualizer:
                 self.draw_bboxes(corners2d, BGRcolor, thickness)
                 if draw_vel:
                     self._draw_vel(g_det, BGRcolor, thickness)
+                if draw_id:
+                    self._draw_id(g_det, BGRcolor)
         elif colorID and ('tracking_id' in nusc_det[0]):
             for det in nusc_det:
                 BGRcolor = getColorFromID(ID=det['tracking_id'], colorRange=(50, 255))
@@ -197,19 +208,35 @@ class TrackVisualizer:
                 self.draw_bboxes(corners2d, BGRcolor, thickness)
                 if draw_vel:
                     self._draw_vel([det], BGRcolor, thickness)
+                if draw_id:
+                    self._draw_id([det], BGRcolor)
         else:   # Draw all boxes using same BGRcolor
             corners2d = self.getBoxCorners2d(nusc_det)
             self.draw_bboxes(corners2d, BGRcolor, thickness)
             if draw_vel:
                 self._draw_vel(nusc_det, BGRcolor, thickness)
+            if draw_id:
+                self._draw_id(nusc_det, BGRcolor)
 
     def _draw_vel(self, nusc_det: list, BGRcolor=(255, 255, 255), thickness=1):
         for det in nusc_det:
+            vel = det['velocity'][:2]
+            if np.linalg.norm(vel) < 0.2:
+                continue
             start_point = det['translation'][:2]
-            end_point = start_point + det['velocity'][:2]
+            end_point = start_point + vel
             start_point = np.round(start_point).astype(int)
             end_point = np.round(end_point).astype(int)
             self.image = cv2.arrowedLine(self.image, start_point, end_point, BGRcolor, thickness)
+
+    def _draw_id(self, nusc_det: list, BGRcolor=(255, 255, 255), fontScale=0.8, thickness=1):
+        font = cv2.FONT_HERSHEY_SIMPLEX
+        fontScale = fontScale
+        for det in nusc_det:
+            org = det['translation'][:2]
+            org = np.round(org).astype(int)
+            ID = int(det['tracking_id'])
+            self.image = cv2.putText(self.image, str(ID), org, font, fontScale, BGRcolor, thickness, cv2.LINE_AA)
 
     def _draw_grid(self, img, grid_shape, color=(0, 255, 0), thickness=1):
         h, w, _ = img.shape
@@ -253,7 +280,7 @@ class TrackVisualizer:
         """
         show and reset the image
         """
-        self.image = cv2.flip(self.image, 0)
+        # self.image = cv2.flip(self.image, 0)
         if self.grid:
             self.draw_grid(diff=50, color=(0, 0, 255), thickness=5, alpha=0.5)
             self.draw_grid(diff=10, color=(255, 255, 255), thickness=2, alpha=0.3)
