@@ -275,6 +275,10 @@ class TrackVisualizer:
             y += int(round((diff / self.resolution)))
 
         return self.image
+
+    def draw_img_boundary(self, BGRcolor=(255, 255, 255), thickness=4):
+        x, y, w, h = 0, 0, self.width, self.height
+        cv2.rectangle(self.image, (x, y), (x+w, y+h), BGRcolor, thickness)
         
     def show(self):
         """
@@ -284,6 +288,7 @@ class TrackVisualizer:
         if self.grid:
             self.draw_grid(diff=50, color=(0, 0, 255), thickness=5, alpha=0.5)
             self.draw_grid(diff=10, color=(255, 255, 255), thickness=2, alpha=0.3)
+        self.draw_img_boundary()
         cv2.imshow(self.windowName, self.image)
         self.reset()
 
