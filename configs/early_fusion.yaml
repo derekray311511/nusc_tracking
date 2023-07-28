@@ -27,6 +27,7 @@ SEGMENTOR:
         - 'truck'
         # - 'pedestrian'
     expand_ratio: 1.2
+    fuse_velocity: True
     
 LIDAR_TRACKER:
     tracker: 'PointTracker' # KF / PointTracker
@@ -72,7 +73,7 @@ VISUALIZER:
         - 'trailer'
         - 'truck'
         - 'pedestrian'
-    range: [160, 160]
+    range: [200, 200]
     windowSize: [1000, 1000]
     imgSize: [1600, 1600]
     duration: 0.1
@@ -95,8 +96,10 @@ VISUALIZER:
         colorID: False
         BGRcolor: [0, 255, 0]
         draw_vel: True
+        draw_id: False
     fusionBox:
-        colorName: False
-        colorID: True
+        colorName: True
+        colorID: False
         BGRcolor: [198, 235, 52]
         draw_vel: True
+        draw_id: False
