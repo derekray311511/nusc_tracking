@@ -82,6 +82,7 @@ def get_trk_colormap() -> Dict[str, Tuple[int, int, int]]:
         "motorcycle": (99, 61, 255),  # Red
         "trailer": (0, 140, 255),  # Darkorange
         "truck": (71, 99, 255),  # Tomato
+        "background": (0, 0, 255),  # For no segmented radar object
     }
 
     return classname_to_color
