@@ -26,6 +26,7 @@ from utils.geometry_utils import *
 from utils.visualizer import TrackVisualizer
 from tracker import PubTracker as lidarTracker
 from early_fusion_tracker import PubTracker as radarTracker
+from early_fusion_fusion import Fusion
 
 NUSCENES_TRACKING_NAMES = [
     'bicycle',
@@ -187,6 +188,7 @@ class RadarSegmentor:
     def __init__(self, cfg):
         self.categories = cfg["detCategories"]
         self.expand_rotio = cfg["expand_ratio"]
+        self.fuse_vel = cfg["fuse_velocity"]
         self.id_count = 0
         self.radarSegmentation = None   # radar segmentation that is already grouped by LiDAR
 
@@ -228,6 +230,7 @@ class RadarSegmentor:
             ratio = self.expand_rotio
             center = det['translation'][:2]
             size = [det['size'][1] * ratio , det['size'][0] * ratio]
+            det_vel = det['velocity']
             cat_num = encodeCategory([det['detection_name']], self.categories)[0]
             row, pitch, angle = euler_from_quaternion(q_to_xyzw(det['rotation']))
             inbox_idxs = is_points_inside_obb(pts, center, size, angle)
@@ -240,6 +243,10 @@ class RadarSegmentor:
 
             # Give radar targets category name
             temp_targets = np.hstack([temp_targets, cat_num * np.ones((len(temp_targets), 1))])
+
+            # Use LiDAR detection velocity
+            if self.fuse_vel:
+                temp_targets[:, 3:5] = det_vel[:2]
 
             radarSegmentation.append(temp_targets)
             self.id_count += 1
@@ -288,6 +295,7 @@ def main(parser) -> None:
     dataset = nusc_dataset(cfg["DATASET"])
 
     # Build Trackers and Segmentor
+    expand_ratio = cfg["SEGMENTOR"]["expand_ratio"]
     radarSeg = RadarSegmentor(cfg["SEGMENTOR"])
     lidar_tracker = lidarTracker(
         hungarian=cfg["LIDAR_TRACKER"]["hungarian"],
@@ -313,10 +321,29 @@ def main(parser) -> None:
         use_vel=cfg["RADAR_TRACKER"]["use_vel"],
         tracker=cfg["RADAR_TRACKER"]["tracker"],
     )
+    fusion_module = Fusion(
+        hungarian=cfg["FUSION"]["hungarian"],
+        decay1=cfg["FUSION"]["decay1"],
+        decay2=cfg["FUSION"]["decay2"],
+        star=cfg["FUSION"]["star"],
+        del_th=cfg["FUSION"]["del_th"],
+        v_min=cfg["FUSION"]["v_min"],
+        v_max=cfg["FUSION"]["v_max"],
+        v_weight=cfg["FUSION"]["v_weight"],
+    )
 
     # Build Vizualizer
     if args.viz:
         trackViz = TrackVisualizer(
+            windowName='track',
+            viz_cat=cfg["VISUALIZER"]["vizCategories"], 
+            range_=cfg["VISUALIZER"]["range"], 
+            windowSize=cfg["VISUALIZER"]["windowSize"], 
+            imgSize=cfg["VISUALIZER"]["imgSize"],
+            duration=cfg["VISUALIZER"]["duration"],
+        )
+        trackViz2 = TrackVisualizer(
+            windowName='fusion',
             viz_cat=cfg["VISUALIZER"]["vizCategories"], 
             range_=cfg["VISUALIZER"]["range"], 
             windowSize=cfg["VISUALIZER"]["windowSize"], 
@@ -333,7 +360,7 @@ def main(parser) -> None:
         "results": {},
         "meta": None,
     }
-    nusc_trk = {
+    nusc_fusion_trk = {
         "results": {},
         "meta": None,
     }
@@ -348,6 +375,8 @@ def main(parser) -> None:
     start = time.time()
 
     for i in tqdm(range(len_frames)):
+        if i < 440:
+            continue
         # get frameID (=token)
         token = frames[i]['token']
         timestamp = frames[i]['timestamp']
@@ -357,11 +386,14 @@ def main(parser) -> None:
         # Reset tracker if this is first frame of the sequence
         if frames[i]['first']:
             lidar_tracker.reset()
-            # radar_tracker.reset()
-            # fusion_module.reset()
+            radar_tracker.reset()
+            # fusion_module.update_scene_velos(detections, frames, i)  # get median velocities of current scene
+            fusion_module.reset_id_log()
             last_time_stamp = timestamp
 
         # calculate time between two frames
+        if i == 440:
+            last_time_stamp = timestamp
         time_lag = (timestamp - last_time_stamp)
         last_time_stamp = timestamp
 
@@ -384,7 +416,10 @@ def main(parser) -> None:
             })
 
         # Radar segmentation with LiDAR detection
-        det_copy = deepcopy(det)
+        det_for_viz = deepcopy(det)
+        for obj in det_for_viz:
+            obj['size'][0], obj['size'][1] = expand_ratio * obj['size'][0], expand_ratio * obj['size'][1]
+
         segResult, segDelay = cal_func_time(radarSeg.run, radarTargets=radar_pc, lidarDet=det)
         radarSeg.reset()
 
@@ -392,22 +427,27 @@ def main(parser) -> None:
         lidar_trks, LtrkDelay = cal_func_time(lidar_tracker.step_centertrack, results=det, time_lag=time_lag)
         lidar_active_trks = []
         for trk in lidar_trks:
-            if not trk['active']: continue
-            trk['size'][0], trk['size'][1] = 1.2 * trk['size'][0], 1.2 * trk['size'][1]
+            if 'active' in trk and trk['active'] < cfg["LIDAR_TRACKER"]["min_hits"]:
+                continue
             lidar_active_trks.append(trk)
 
-        # Format radarSeg to object tracking type
+        # Format radarSeg to object tracking type and perform tracking
         radarObjs = radar_tracker.formatForRadarSeg(segResult)
         radar_trks, RtrkDelay = cal_func_time(radar_tracker.step_centertrack, results=radarObjs, time_lag=time_lag)
         radar_active_trks = []
         for trk in radar_trks:
-            if not trk['active']: continue
+            if 'active' in trk and trk['active'] < cfg["RADAR_TRACKER"]["min_hits"]:
+                continue
             trk['size'] = [1.0, 1.0, 1.0]    # testing value
-            trk['rotation'] = [1.0, 0.0, 0.0, 0.0]    # testing value
             radar_active_trks.append(trk)
 
-        # Fusion module (ID arrangement)
-
+        # Fusion module (ID arrangement and score update)
+        fusion_trks = fusion_module.fuse(deepcopy(lidar_active_trks), deepcopy(radar_active_trks))
+        fusion_active_trks = []
+        for trk in fusion_trks:
+            if 'active' in trk and trk['active'] < cfg["FUSION"]["min_hits"]:
+                continue
+            fusion_active_trks.append(trk)
 
         # Vizsualize (realtime)
         if args.viz:
@@ -428,14 +468,21 @@ def main(parser) -> None:
             elif key == 45: # -
                 trackViz.duration *= 0.5
                 print(f"Viz duration set to {trackViz.duration}")
+            elif key == ord('g'):
+                trackViz.grid = not trackViz.grid
+                trackViz2.grid = not trackViz2.grid
 
             trans = dataset.get_4f_transform(ego_pose, inverse=True)
             trackViz.draw_ego_car(img_src="/data/car1.png")
+            trackViz2.draw_ego_car(img_src="/data/car1.png")
             _, delay1 = cal_func_time(trackViz.draw_radar_seg, radarSeg=segResult, trans=trans, **cfg["VISUALIZER"]["radarSeg"])
-            _, delay2 = cal_func_time(trackViz.draw_det_bboxes, nusc_det=det_copy, trans=trans, **cfg["VISUALIZER"]["detBox"])
+            _, delay2 = cal_func_time(trackViz.draw_det_bboxes, nusc_det=det_for_viz, trans=trans, **cfg["VISUALIZER"]["detBox"])
             _, delay3 = cal_func_time(trackViz.draw_det_bboxes, nusc_det=lidar_active_trks, trans=trans, **cfg["VISUALIZER"]["trkBox"])
-            trackViz.draw_det_bboxes(radar_active_trks, trans, (0, 255, 0), colorName=False)
+            trackViz.draw_det_bboxes(radar_active_trks, trans, **cfg["VISUALIZER"]["radarTrkBox"])
+            trackViz2.draw_radar_seg(segResult, trans, **cfg["VISUALIZER"]["radarSeg"])
+            trackViz2.draw_det_bboxes(fusion_active_trks, trans, **cfg["VISUALIZER"]["fusionBox"])
             trackViz.show()
+            trackViz2.show()
             if args.show_delay:
                 print(f"nms delay: {nmsDelay / 1e-3: .2f} ms")
                 print(f"Radar seg delay: {segDelay / 1e-3: .2f} ms")

@@ -5,6 +5,7 @@ import itertools
 from filterpy.kalman import KalmanFilter
 from scipy.optimize import linear_sum_assignment
 from utils.utils import decodeCategory
+from utils.geometry_utils import q_to_wxyz, q_to_xyzw, get_quaternion_from_euler
 
 NUSCENES_TRACKING_NAMES = [
     'bicycle',
@@ -36,6 +37,8 @@ NUSCENE_CLS_VELOCITY_ERROR = {
     # 'traffic_cone': 1,
     'background': 4
 }
+RADAR_UNCERTAINTY_PARAMETER = 1.5
+NUSCENE_CLS_VELOCITY_ERROR = {key: value * RADAR_UNCERTAINTY_PARAMETER for key, value in NUSCENE_CLS_VELOCITY_ERROR.items()}
 
 
 def greedy_assignment(dist):
@@ -61,8 +64,9 @@ def comparing_positions(self, positions1_data, positions2_data, positions1, posi
     if len(positions1) > 0:  # NOT FIRST FRAME
         dist = (((positions1.reshape(1, -1, 2) - positions2.reshape(-1, 1, 2)) ** 2).sum(axis=2))  # N x M
         dist = np.sqrt(dist)  # absolute distance in meter
-        invalid = ((dist > max_diff.reshape(N, 1)) + (
-                positions2_cat.reshape(N, 1) != positions1_cat.reshape(1, M))) > 0
+        # invalid = ((dist > max_diff.reshape(N, 1)) + (
+        #         positions2_cat.reshape(N, 1) != positions1_cat.reshape(1, M))) > 0
+        invalid = dist > max_diff.reshape(N, 1) # Don't filter by category
         dist = dist + invalid * 1e18
         if self.hungarian:
             dist[dist > 1e18] = 1e18
@@ -110,6 +114,16 @@ def update_function(self, track, m, loaded_model):
         track['detection_score'] = np.maximum(track['detection_score'],
                                               self.tracks[m[1]]['detection_score'])
 
+    return track
+
+
+def update_heading_by_velocity(self, track):
+    if self.tracker == 'PointTracker':
+        offset = track['tracking'] * -1
+    elif self.tracker == 'KF':
+        offset = track['velocity']
+    yaw = np.arctan2(offset[1], offset[0])
+    track['rotation'] = q_to_wxyz(get_quaternion_from_euler(0.0, 0.0, yaw))
     return track
 
 
@@ -316,7 +330,9 @@ class PubTracker(object):
                         track['KF'].H = np.array([[1., 0., 0., 0., 0., 0.],
                                                   [0., 1., 0., 0., 0., 0.]])
                     track['KF'].x = np.hstack([track['ct'], np.array(track['velocity'][:2]), np.zeros(2)])
+                    # track['KF'].x = np.hstack([track['ct'], np.array([0.0, 0.0]), np.zeros(2)])
                     track['KF'].P *= 10
+                track = update_heading_by_velocity(self, track)
                 ret.append(track)
             self.tracks = ret
             return ret
@@ -380,6 +396,7 @@ class PubTracker(object):
                                                            a_min=0.0, a_max=1.0)
             # update detection score
             track['detection_score'] = update_function(self, track, m, self.loaded_model)['detection_score']
+            track = update_heading_by_velocity(self, track)
 
             ret.append(track)
 
@@ -407,6 +424,7 @@ class PubTracker(object):
                 track['active'] = 1
             else:
                 track['active'] = 0
+            track = update_heading_by_velocity(self, track)
             ret.append(track)
 
         # still store unmatched tracks if its age doesn't exceed max_age, 
@@ -437,6 +455,7 @@ class PubTracker(object):
                     track['translation'][1] = track['KF'].x[1]
                     track['velocity'][0] = track['KF'].x[2]
                     track['velocity'][1] = track['KF'].x[3]
+                track = update_heading_by_velocity(self, track)
                 ret.append(track)
 
         self.tracks = ret
