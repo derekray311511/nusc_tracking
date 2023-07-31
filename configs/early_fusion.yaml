@@ -8,13 +8,22 @@ DATASET:
 
 EVALUATE:
     dataroot: "/data/small_data2"
-    out_dir: ${OUT_DIR}
-    range: "default"
-    tp_dist: "default"
+    eval_set: "val"
+    out_dir: None
+    res_path: None
+    dist_th_tp: 2.0    # Default with 2
+    custom_range: 
+        bicycle: 40
+        motorcycle: 40
+        pedestrian: 40
+        bus: 50
+        car: 50
+        trailer: 50
+        truck: 50
 
 DETECTION: 
     bbox_score: 0.01
-    use_nms: False
+    use_nms: True
     nms_th: 0.5
 
 SEGMENTOR:
@@ -65,7 +74,7 @@ FUSION:
     v_weight: 0.8
 
 VISUALIZER:
-    vizCategories:
+    viz_cat:
         - 'bicycle'
         - 'bus'
         - 'car'
@@ -73,10 +82,11 @@ VISUALIZER:
         - 'trailer'
         - 'truck'
         - 'pedestrian'
-    range: [200, 200]
+    range_: [200, 200]
     windowSize: [1000, 1000]
     imgSize: [1600, 1600]
     duration: 0.1
+    background_color: [50, 50, 50]
     grid: True
     radarSeg:
         colorID: True
