@@ -1,6 +1,7 @@
 import cv2
 import numpy as np
 import itertools
+import colorsys
 
 from .geometry_utils import *
 from .box_utils import get_3d_box, get_2d_box
@@ -17,7 +18,9 @@ class TrackVisualizer:
         windowSize: tuple = (800, 800),
         imgSize: tuple = (1600, 1600), 
         duration: float = 0.5,
+        background_color: tuple = (50, 50, 50),
         grid: bool = True,
+        **kwargs,
     ):
         self.viz_cat = viz_cat
         self.trk_colorMap = get_trk_colormap()
@@ -29,8 +32,9 @@ class TrackVisualizer:
         self.duration = duration
         self.windowName = windowName
         self.window = cv2.namedWindow(self.windowName, cv2.WINDOW_NORMAL)
+        self.background_color = np.array(background_color, dtype=np.uint8)
         self.grid = grid
-        self.image = np.ones((self.height, self.width, 3), dtype=np.uint8) * 50
+        self.image = np.ones((self.height, self.width, 3), dtype=np.uint8) * self.background_color
         
         cv2.resizeWindow(self.windowName, windowSize)
         print(f"window: {self.windowName}")
@@ -41,7 +45,7 @@ class TrackVisualizer:
         print(f"duration: {self.duration}")
 
     def reset(self):
-        self.image = np.ones((self.height, self.width, 3), dtype=np.uint8) * 50
+        self.image = np.ones((self.height, self.width, 3), dtype=np.uint8) * self.background_color
 
     def draw_ego_car(self, img_src):
         # Load the car image with an alpha channel (transparency)
@@ -109,7 +113,8 @@ class TrackVisualizer:
         if colorID:
             for k, g in itertools.groupby(radarSeg, lambda x: x[5]):
                 g = list(g)
-                BGRcolor = getColorFromID(ID=k)
+                # BGRcolor = getColorFromID(ID=k, colorRange=(50, 255))
+                BGRcolor = getColorFromID_HSV(ID=k, cycle_num=12)
                 if k == -1:  # id == -1
                     self.draw_radar_pts(g, trans, BGRcolor=BGRcolor, showContours=False)
                 else:
@@ -203,7 +208,8 @@ class TrackVisualizer:
                     self._draw_id(g_det, BGRcolor)
         elif colorID and ('tracking_id' in nusc_det[0]):
             for det in nusc_det:
-                BGRcolor = getColorFromID(ID=det['tracking_id'], colorRange=(50, 255))
+                # BGRcolor = getColorFromID(ID=det['tracking_id'], colorRange=(50, 255))
+                BGRcolor = getColorFromID_HSV(ID=det['tracking_id'], cycle_num=12)
                 corners2d = self.getBoxCorners2d([det])
                 self.draw_bboxes(corners2d, BGRcolor, thickness)
                 if draw_vel:
@@ -255,26 +261,26 @@ class TrackVisualizer:
 
         return img
 
-    def draw_grid(self, diff=10, color=(0, 255, 0), thickness=1, alpha=1.0):
+    def draw_grid(self, image, diff=10, color=(0, 255, 0), thickness=1, alpha=1.0):
         """ Draw grid from image center """
-        h, w, _ = self.image.shape
+        h, w, _ = image.shape
         color = np.array(color) * alpha
 
         # draw vertical lines
         x = w // 2
         while(x < w):
-            cv2.line(self.image, (x, 0), (x, h), color=color, thickness=thickness)
-            cv2.line(self.image, (w-x, 0), (w-x, h), color=color, thickness=thickness)
+            cv2.line(image, (x, 0), (x, h), color=color, thickness=thickness)
+            cv2.line(image, (w-x, 0), (w-x, h), color=color, thickness=thickness)
             x += int(round((diff / self.resolution)))
         
         # draw horizontal lines
         y = h // 2
         while(y < h):
-            cv2.line(self.image, (0, y), (w, y), color=color, thickness=thickness)
-            cv2.line(self.image, (0, h-y), (w, h-y), color=color, thickness=thickness)
+            cv2.line(image, (0, y), (w, y), color=color, thickness=thickness)
+            cv2.line(image, (0, h-y), (w, h-y), color=color, thickness=thickness)
             y += int(round((diff / self.resolution)))
 
-        return self.image
+        return image
 
     def draw_img_boundary(self, BGRcolor=(255, 255, 255), thickness=4):
         x, y, w, h = 0, 0, self.width, self.height
@@ -284,10 +290,12 @@ class TrackVisualizer:
         """
         show and reset the image
         """
-        # self.image = cv2.flip(self.image, 0)
         if self.grid:
-            self.draw_grid(diff=50, color=(0, 0, 255), thickness=5, alpha=0.5)
-            self.draw_grid(diff=10, color=(255, 255, 255), thickness=2, alpha=0.3)
+            grid_image = np.ones_like(self.image, dtype=np.uint8) * self.background_color
+            grid_image = self.draw_grid(grid_image, diff=10, color=(255, 255, 255), thickness=2, alpha=0.3)
+            grid_image = self.draw_grid(grid_image, diff=50, color=(0, 0, 255), thickness=5, alpha=0.5)
+            mask = (self.image == self.background_color)
+            self.image = self.image * np.bitwise_not(mask) + grid_image * mask
         self.draw_img_boundary()
         cv2.imshow(self.windowName, self.image)
         self.reset()
@@ -300,6 +308,16 @@ def getColorFromID(baseColor=(100, 100, 100), colorRange=(155, 255), ID=-1) -> t
         G = ((50 + 30*ID) % (255 - colorRange[0]) + colorRange[0]) % colorRange[1]     # colorRange[0]~colorRange[1]
         R = ((100 + 20*ID) % (255 - colorRange[0]) + colorRange[0]) % colorRange[1]    # colorRange[0]~colorRange[1]
     return (B, G, R)
+
+def getColorFromID_HSV(baseColor=(100, 100, 100), ID=-1, cycle_num=12):
+    # Generate colors using HSV color space
+    if ID == -1:
+        return baseColor
+    else:
+        hue = (ID % cycle_num) / cycle_num
+        rgb = colorsys.hsv_to_rgb(hue, 1.0, 1.0)
+        bgr_color = (int(rgb[2] * 255), int(rgb[1] * 255), int(rgb[0] * 255))  # Convert RGB to BGR
+        return bgr_color
 
 if __name__ == "__main__":
     trackViz = TrackVisualizer()
