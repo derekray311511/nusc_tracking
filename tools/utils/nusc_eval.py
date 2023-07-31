@@ -9,7 +9,7 @@ def mkdir_or_exist(dir_name, mode=0o777):
     dir_name = os.path.expanduser(dir_name)
     os.makedirs(dir_name, mode=mode, exist_ok=True)
 
-def nusc_eval(res_path, eval_set="val", output_dir=None, data_path=None, custom_range=None, dist_th_tp=None):
+def nusc_eval(res_path, eval_set="val", out_dir=None, dataroot=None, custom_range=None, dist_th_tp=None, **kwargs):
 
     cfg = track_configs("tracking_nips_2019")
     if dist_th_tp is not None:
@@ -26,10 +26,10 @@ def nusc_eval(res_path, eval_set="val", output_dir=None, data_path=None, custom_
         config=cfg,
         result_path=res_path,
         eval_set=eval_set,
-        output_dir=output_dir,
+        output_dir=out_dir,
         verbose=True,
         nusc_version="v1.0-trainval",
-        nusc_dataroot=data_path,
+        nusc_dataroot=dataroot,
     )
     metrics_summary = nusc_eval.main()
 
@@ -43,7 +43,7 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     dataroot = args.dataroot
-    result_path = os.path.join('/data/track_results', args.version)
+    result_path = os.path.join('/data/early_fusion_track_results', args.version)
 
     if args.range is None:
         range = "default"
@@ -59,15 +59,15 @@ if __name__ == "__main__":
             "motorcycle": range,
             "bicycle": range
         }
-    out_dir = os.path.join(result_path, f"eval_custom_{str(range)}")
+    out_dir = os.path.join(result_path, f"eval_custom_{str(range)}_998")
     mkdir_or_exist(out_dir)
     print(f"\nResult path: {result_path}")
     print(f"\nEvaluating {args.version} using dataset from '{dataroot}'...\n")
     nusc_eval(
             os.path.join(result_path, 'tracking_result.json'),
             eval_set="val",
-            output_dir=out_dir,
-            data_path=dataroot,
+            out_dir=out_dir,
+            dataroot=dataroot,
             custom_range=custom_range,
             dist_th_tp=args.tp_dist,
     )

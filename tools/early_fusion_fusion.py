@@ -28,7 +28,7 @@ NUSCENE_CLS_VELOCITY_ERROR = {
     'truck': 4,
     'bus': 5.5,
     'trailer': 2,
-    'pedestrian': 1,
+    'pedestrian': 1.5,
     'motorcycle': 4,
     'bicycle': 2.5,
     'construction_vehicle': 1,
@@ -36,7 +36,7 @@ NUSCENE_CLS_VELOCITY_ERROR = {
     'traffic_cone': 1,
     'background': 4,
 }
-FUSION_UNCERTAINTY_PARAMETER = 2.0
+FUSION_UNCERTAINTY_PARAMETER = 1.0
 NUSCENE_CLS_VELOCITY_ERROR = {key: value * FUSION_UNCERTAINTY_PARAMETER for key, value in NUSCENE_CLS_VELOCITY_ERROR.items()}
 
 

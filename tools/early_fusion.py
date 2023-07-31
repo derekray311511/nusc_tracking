@@ -24,6 +24,7 @@ from utils.box_utils import get_3d_box_8corner, get_3d_box_2corner
 from utils.box_utils import nms, is_points_inside_obb
 from utils.geometry_utils import *
 from utils.visualizer import TrackVisualizer
+from utils.nusc_eval import nusc_eval
 from tracker import PubTracker as lidarTracker
 from early_fusion_tracker import PubTracker as radarTracker
 from early_fusion_fusion import Fusion
@@ -278,7 +279,7 @@ def get_parser() -> argparse.ArgumentParser:
 def main(parser) -> None:
     args, opts = parser.parse_known_args()
     cfg = yaml.safe_load(open(args.config))
-    cfg["EVALUATE"]["out_dir"] = args.out_dir
+    cfg["EVALUATE"]["out_dir"] = os.path.join(args.out_dir, 'eval')
 
     # Prepare results saving path / Copy parameters and code
     print(f"CONFIG:\n{yaml.dump(cfg, sort_keys=False)}\n")
@@ -336,19 +337,11 @@ def main(parser) -> None:
     if args.viz:
         trackViz = TrackVisualizer(
             windowName='track',
-            viz_cat=cfg["VISUALIZER"]["vizCategories"], 
-            range_=cfg["VISUALIZER"]["range"], 
-            windowSize=cfg["VISUALIZER"]["windowSize"], 
-            imgSize=cfg["VISUALIZER"]["imgSize"],
-            duration=cfg["VISUALIZER"]["duration"],
+            **cfg["VISUALIZER"],
         )
         trackViz2 = TrackVisualizer(
             windowName='fusion',
-            viz_cat=cfg["VISUALIZER"]["vizCategories"], 
-            range_=cfg["VISUALIZER"]["range"], 
-            windowSize=cfg["VISUALIZER"]["windowSize"], 
-            imgSize=cfg["VISUALIZER"]["imgSize"],
-            duration=cfg["VISUALIZER"]["duration"],
+            **cfg["VISUALIZER"],
         )
 
     # prepare writen output file
@@ -375,8 +368,8 @@ def main(parser) -> None:
     start = time.time()
 
     for i in tqdm(range(len_frames)):
-        if i < 440:
-            continue
+        # if i < 440:
+        #     continue
         # get frameID (=token)
         token = frames[i]['token']
         timestamp = frames[i]['timestamp']
@@ -392,8 +385,8 @@ def main(parser) -> None:
             last_time_stamp = timestamp
 
         # calculate time between two frames
-        if i == 440:
-            last_time_stamp = timestamp
+        # if i == 440:
+        #     last_time_stamp = timestamp
         time_lag = (timestamp - last_time_stamp)
         last_time_stamp = timestamp
 
@@ -444,11 +437,30 @@ def main(parser) -> None:
 
         # Fusion module (ID arrangement and score update)
         fusion_trks = fusion_module.fuse(deepcopy(lidar_active_trks), deepcopy(radar_active_trks))
+        temp_fusion_trks = []
         fusion_active_trks = []
         for trk in fusion_trks:
+            trk['tracking_score'] = trk['detection_score']
+
             if 'active' in trk and trk['active'] < cfg["FUSION"]["min_hits"]:
                 continue
+
+            if trk['detection_name'] in NUSCENES_TRACKING_NAMES:
+                nusc_trk = {
+                    "sample_token": token,
+                    "translation": list(trk['translation']),
+                    "size": list(trk['size']),
+                    "rotation": list(trk['rotation']),
+                    "velocity": list(trk['velocity']),
+                    "tracking_id": str(trk['tracking_id']),
+                    "tracking_name": trk['detection_name'],
+                    "tracking_score": trk['tracking_score'],
+                }
+                temp_fusion_trks.append(nusc_trk)
+
             fusion_active_trks.append(trk)
+
+        nusc_fusion_trk["results"].update({token: temp_fusion_trks})
 
         # Vizsualize (realtime)
         if args.viz:
@@ -483,6 +495,7 @@ def main(parser) -> None:
             trackViz2.draw_ego_car(img_src="/data/car1.png")
             trackViz2.draw_radar_seg(segResult, trans, **cfg["VISUALIZER"]["radarSeg"])
             trackViz2.draw_det_bboxes(fusion_active_trks, trans, **cfg["VISUALIZER"]["fusionBox"])
+            # trackViz2.draw_det_bboxes(radar_active_trks, trans, **cfg["VISUALIZER"]["radarTrkBox"])
             trackViz.show()
             trackViz2.show()
             viz_end = time.time()
@@ -490,7 +503,37 @@ def main(parser) -> None:
                 print(f"nms delay: {nmsDelay / 1e-3: .2f} ms")
                 print(f"viz delay:{(viz_end - viz_start) / 1e-3: .2f} ms")
 
+    # Close vizualization
     cv2.destroyAllWindows()
+
+    # calculate computation time
+    end = time.time()
+    second = (end - start)
+    speed = len_frames / second
+    print("======")
+    print("The speed is {} FPS".format(speed))
+    print("tracking results have {} frames".format(len(nusc_fusion_trk["results"])))
+
+    nusc_fusion_trk["meta"] = {
+        "use_camera": False,
+        "use_lidar": True,
+        "use_radar": True,
+        "use_map": False,
+        "use_external": False,
+    }
+
+    # write result file
+    with open(track_res_path, "w") as f:
+        json.dump(nusc_fusion_trk, f)
+    print(f"tracking results write to {track_res_path}\n")
+
+    # Evaluation
+    if args.evaluate:
+        print("======")
+        print("Start evaluating tracking results")
+        print(f"output directory: {cfg['EVALUATE']['out_dir']}")
+        cfg["EVALUATE"]["res_path"] = track_res_path
+        nusc_eval(**cfg["EVALUATE"])
 
 
 if __name__ == "__main__":
