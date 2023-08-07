@@ -2,6 +2,7 @@ import cv2
 import numpy as np
 import itertools
 import colorsys
+import time
 
 from .geometry_utils import *
 from .box_utils import get_3d_box, get_2d_box
@@ -291,11 +292,13 @@ class TrackVisualizer:
         show and reset the image
         """
         if self.grid:
-            grid_image = np.ones_like(self.image, dtype=np.uint8) * self.background_color
+            # grid_image = np.ones_like(self.image, dtype=np.uint8) * self.background_color
+            grid_image = np.ones_like(self.image, dtype=np.uint8)
             grid_image = self.draw_grid(grid_image, diff=10, color=(255, 255, 255), thickness=2, alpha=0.3)
-            grid_image = self.draw_grid(grid_image, diff=50, color=(0, 0, 255), thickness=5, alpha=0.5)
-            mask = (self.image == self.background_color)
-            self.image = self.image * np.bitwise_not(mask) + grid_image * mask
+            grid_image = self.draw_grid(grid_image, diff=50, color=(0, 0, 255), thickness=3, alpha=0.5)
+            # mask = (self.image == self.background_color)
+            # self.image = self.image * np.bitwise_not(mask) + grid_image * mask
+            self.image = cv2.addWeighted(grid_image, 0.5, self.image, 1.0, 0)
         self.draw_img_boundary()
         cv2.imshow(self.windowName, self.image)
         self.reset()
