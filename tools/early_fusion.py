@@ -297,6 +297,8 @@ def main(parser) -> None:
         log_parser_args(root_path, args)
         shutil.copyfile(os.path.join(args.workspace, 'tools/early_fusion.sh'), os.path.join(root_path, 'early_fusion.sh'), follow_symlinks=True)
         shutil.copyfile(os.path.join(args.workspace, 'tools/early_fusion.py'), os.path.join(root_path, 'early_fusion.py'), follow_symlinks=True)
+        shutil.copyfile(os.path.join(args.workspace, 'tools/early_fusion_fusion.py'), os.path.join(root_path, 'early_fusion_fusion.py'), follow_symlinks=True)
+        shutil.copyfile(os.path.join(args.workspace, 'tools/early_fusion_tracker.py'), os.path.join(root_path, 'early_fusion_tracker.py'), follow_symlinks=True)
         shutil.copyfile(os.path.join(args.workspace, 'configs/early_fusion.yaml'), os.path.join(root_path, 'early_fusion.yaml'), follow_symlinks=True)
 
     # Build data preprocessing for track
