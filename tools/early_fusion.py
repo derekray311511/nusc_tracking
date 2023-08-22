@@ -18,7 +18,7 @@ from scipy.spatial.transform import Rotation as R
 from pyquaternion import Quaternion
 from tqdm import tqdm
 from copy import deepcopy
-from utils.utils import log_parser_args, mkdir_or_exist, cal_func_time
+from utils.utils import log_parser_args, mkdir_or_exist, cal_func_time, get_current_datetime
 from utils.utils import encodeCategory, decodeCategory
 from utils.box_utils import get_3d_box_8corner, get_3d_box_2corner
 from utils.box_utils import nms, is_points_inside_obb
@@ -270,6 +270,7 @@ def get_parser() -> argparse.ArgumentParser:
     parser.add_argument("config", metavar="CONFIG_FILE")
     parser.add_argument("--workspace", type=str, default="/home/Student/Tracking")
     parser.add_argument("--out-dir", type=str, default="/data/early_fusion_track_results/Test")
+    parser.add_argument("--out_time", action="store_true")
     parser.add_argument("--evaluate", type=int, default=0)
     parser.add_argument("--save_log", action="store_true")
     parser.add_argument("--viz", action="store_true")
@@ -279,11 +280,17 @@ def get_parser() -> argparse.ArgumentParser:
 def main(parser) -> None:
     args, opts = parser.parse_known_args()
     cfg = yaml.safe_load(open(args.config))
-    cfg["EVALUATE"]["out_dir"] = os.path.join(args.out_dir, 'eval')
+    # set output dir
+    if args.out_time:
+        temp = args.out_dir.split('/')
+        out_dirname = get_current_datetime() + "_" + temp[-1]
+        args.out_dir = "/" + os.path.join(*temp[:-1], out_dirname)
+    root_path = args.out_dir
+    
+    cfg["EVALUATE"]["out_dir"] = os.path.join(root_path, 'eval')
 
     # Prepare results saving path / Copy parameters and code
     print(f"CONFIG:\n{yaml.dump(cfg, sort_keys=False)}\n")
-    root_path = args.out_dir
     track_res_path = os.path.join(root_path, 'tracking_result.json')
     mkdir_or_exist(os.path.dirname(track_res_path))
     if args.save_log:
