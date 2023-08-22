@@ -28,7 +28,7 @@ NUSCENE_CLS_VELOCITY_ERROR = {
     'truck': 4,
     'bus': 5.5,
     'trailer': 2,
-    'pedestrian': 1.5,
+    'pedestrian': 1,    # 1
     'motorcycle': 4,
     'bicycle': 2.5,
     'construction_vehicle': 1,
@@ -38,6 +38,14 @@ NUSCENE_CLS_VELOCITY_ERROR = {
 }
 FUSION_UNCERTAINTY_PARAMETER = 1.0
 NUSCENE_CLS_VELOCITY_ERROR = {key: value * FUSION_UNCERTAINTY_PARAMETER for key, value in NUSCENE_CLS_VELOCITY_ERROR.items()}
+
+FUSION_NAMES = [
+    'bus',
+    'car',
+    'motorcycle',
+    'trailer',
+    'truck',
+]
 
 
 # Euclidean distance in 1D *****************************************************
@@ -98,7 +106,7 @@ def create_distance_matrix(tracks1, tracks2, velos, velo_dev):
                 # determine whether distance is close enough to count as a match
                 # if dist <= NUSCENE_CLS_VELOCITY_ERROR[point_cp['detection_name']] * vel_dev:
                 #     distances[row][col] = dist
-                if dist <= NUSCENE_CLS_VELOCITY_ERROR[point_cp['detection_name']]:  # Not using vel similarity
+                if point_cp['detection_name'] in FUSION_NAMES and dist <= NUSCENE_CLS_VELOCITY_ERROR[point_cp['detection_name']]:  # Not using vel similarity
                     distances[row][col] = dist
 
                 # else: invalid match
