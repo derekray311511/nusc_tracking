@@ -16,12 +16,21 @@ def nusc_eval(res_path, eval_set="val", out_dir=None, dataroot=None, custom_rang
         print(f"Match dist is changed from {cfg.dist_th_tp} m ", end='')
         cfg.dist_th_tp = dist_th_tp
         print(f"to {cfg.dist_th_tp} m")
+
     if custom_range is not None:
         for k, v in cfg.class_range.items():
             cfg.class_range[k] = custom_range[k]
+
     print(f"Evaluate ranges for classes:")
-    for k, v in cfg.class_range.items():
-        print(f"{k}: {v}")
+    mkdir_or_exist(out_dir)
+    info_path = os.path.join(out_dir, 'info.txt')
+    with open(info_path, 'w') as f:
+        f.write(f"dataroot: {dataroot}\n")
+        f.write(f"dist_th_tp: {cfg.dist_th_tp}\n")
+        for k, v in cfg.class_range.items():
+            print(f"{k}: {v}")
+            f.write(f"{k}: {v}\n")
+
     nusc_eval = TrackingEval(
         config=cfg,
         result_path=res_path,
@@ -59,7 +68,7 @@ if __name__ == "__main__":
             "motorcycle": range,
             "bicycle": range
         }
-    out_dir = os.path.join(result_path, f"eval_custom_{str(range)}_998")
+    out_dir = os.path.join(result_path, f"eval_{str(range)}_{int(args.tp_dist)}_998")
     mkdir_or_exist(out_dir)
     print(f"\nResult path: {result_path}")
     print(f"\nEvaluating {args.version} using dataset from '{dataroot}'...\n")
