@@ -28,18 +28,18 @@ DETECTION:
 
 SEGMENTOR:
     detCategories:
-        - 'bicycle'
+        # - 'bicycle'
         - 'bus'
         - 'car'
         - 'motorcycle'
         - 'trailer'
         - 'truck'
         # - 'pedestrian'
-    expand_ratio: 1.2
+    expand_ratio: [1.5, 1.5]    # w, l
     fuse_velocity: True
     
 LIDAR_TRACKER:
-    tracker: 'PointTracker' # KF / PointTracker
+    tracker: 'KF' # KF / PointTracker
     hungarian: False
     max_age: 6
     min_hits: 1
