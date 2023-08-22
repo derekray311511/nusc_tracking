@@ -230,7 +230,7 @@ class RadarSegmentor:
         for det in lidarDet:
             ratio = self.expand_rotio
             center = det['translation'][:2]
-            size = [det['size'][1] * ratio , det['size'][0] * ratio]
+            size = [det['size'][1] * ratio[1] , det['size'][0] * ratio[0]]
             det_vel = det['velocity']
             cat_num = encodeCategory([det['detection_name']], self.categories)[0]
             row, pitch, angle = euler_from_quaternion(q_to_xyzw(det['rotation']))
@@ -336,11 +336,11 @@ def main(parser) -> None:
     # Build Vizualizer
     if args.viz:
         trackViz = TrackVisualizer(
-            windowName='track',
+            windowName='Intermediate',
             **cfg["VISUALIZER"],
         )
         trackViz2 = TrackVisualizer(
-            windowName='fusion',
+            windowName='Fusion result',
             **cfg["VISUALIZER"],
         )
 
@@ -412,28 +412,62 @@ def main(parser) -> None:
         # Radar segmentation with LiDAR detection
         det_for_viz = deepcopy(det)
         for obj in det_for_viz:
-            obj['size'][0], obj['size'][1] = expand_ratio * obj['size'][0], expand_ratio * obj['size'][1]
+            obj['size'][0], obj['size'][1] = expand_ratio[0] * obj['size'][0], expand_ratio[1] * obj['size'][1]
 
         segResult, segDelay = cal_func_time(radarSeg.run, radarTargets=radar_pc, lidarDet=det)
         radarSeg.reset()
 
         # Tracking for LiDAR and Radar respectively
         lidar_trks, LtrkDelay = cal_func_time(lidar_tracker.step_centertrack, results=det, time_lag=time_lag)
+        temp_lidar_trks = []
         lidar_active_trks = []
         for trk in lidar_trks:
             if 'active' in trk and trk['active'] < cfg["LIDAR_TRACKER"]["min_hits"]:
                 continue
+            
+            trk['tracking_score'] = trk['detection_score']
             lidar_active_trks.append(trk)
+            if trk['detection_name'] in NUSCENES_TRACKING_NAMES:
+                nusc_trk = {
+                    "sample_token": token,
+                    "translation": list(trk['translation']),
+                    "size": list(trk['size']),
+                    "rotation": list(trk['rotation']),
+                    "velocity": list(trk['velocity']),
+                    "tracking_id": str(trk['tracking_id']),
+                    "tracking_name": trk['detection_name'],
+                    "tracking_score": trk['tracking_score'],
+                }
+                temp_lidar_trks.append(nusc_trk)
+
+        nusc_LiDAR_trk["results"].update({token: deepcopy(temp_lidar_trks)})
 
         # Format radarSeg to object tracking type and perform tracking
         radarObjs = radar_tracker.formatForRadarSeg(segResult)
         radar_trks, RtrkDelay = cal_func_time(radar_tracker.step_centertrack, results=radarObjs, time_lag=time_lag)
+        temp_radar_trks = []
         radar_active_trks = []
         for trk in radar_trks:
             if 'active' in trk and trk['active'] < cfg["RADAR_TRACKER"]["min_hits"]:
                 continue
-            trk['size'] = [1.0, 1.0, 1.0]    # testing value
+
+            trk['size'] = [1.0, 1.0, 1.0]    # pseudo size
+            trk['tracking_score'] = trk['detection_score']
             radar_active_trks.append(trk)
+            if trk['detection_name'] in NUSCENES_TRACKING_NAMES:
+                nusc_trk = {
+                    "sample_token": token,
+                    "translation": list(trk['translation']),
+                    "size": list(trk['size']),
+                    "rotation": list(trk['rotation']),
+                    "velocity": list(trk['velocity']),
+                    "tracking_id": str(trk['tracking_id']),
+                    "tracking_name": trk['detection_name'],
+                    "tracking_score": trk['tracking_score'],
+                }
+                temp_radar_trks.append(nusc_trk)
+
+        nusc_Radar_trk["results"].update({token: deepcopy(temp_radar_trks)})
 
         # Fusion module (ID arrangement and score update)
         fusion_trks = fusion_module.fuse(deepcopy(lidar_active_trks), deepcopy(radar_active_trks))
@@ -460,7 +494,7 @@ def main(parser) -> None:
 
             fusion_active_trks.append(trk)
 
-        nusc_fusion_trk["results"].update({token: temp_fusion_trks})
+        nusc_fusion_trk["results"].update({token: deepcopy(temp_fusion_trks)})
 
         # Vizsualize (realtime)
         if args.viz:
@@ -521,9 +555,29 @@ def main(parser) -> None:
         "use_map": False,
         "use_external": False,
     }
+    nusc_LiDAR_trk["meta"] = {
+        "use_camera": False,
+        "use_lidar": True,
+        "use_radar": False,
+        "use_map": False,
+        "use_external": False,
+    }
+    nusc_Radar_trk["meta"] = {
+        "use_camera": False,
+        "use_lidar": True,
+        "use_radar": True,
+        "use_map": False,
+        "use_external": False,
+    }
 
     # write result file
-    with open(track_res_path, "w") as f:
+    lidar_res_path = os.path.join(root_path, 'lidar_tracking_res.json')
+    radar_res_path = os.path.join(root_path, 'radar_tracking_res.json')
+    with open(lidar_res_path, 'w') as f:
+        json.dump(nusc_LiDAR_trk, f)
+    with open(radar_res_path, 'w') as f:
+        json.dump(nusc_Radar_trk, f)
+    with open(track_res_path, 'w') as f:
         json.dump(nusc_fusion_trk, f)
     print(f"tracking results write to {track_res_path}\n")
 
