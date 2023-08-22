@@ -29,8 +29,9 @@ def create_tracks(all_boxes: EvalBoxes, nusc: NuScenes, eval_split: str, gt: boo
             custom_tokens.append(v)
     else:
         for i, token in enumerate(all_boxes.sample_tokens):
+            if int(i) > 997: continue
             custom_tokens.append(token)
-    print(f"evaluate on {len(custom_tokens) frames}")
+    print(f"evaluate on {len(custom_tokens)} frames")
 
     # Only keep samples from this split.
     splits = create_splits_scenes()
