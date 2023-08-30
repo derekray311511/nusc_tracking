@@ -369,6 +369,10 @@ def main(parser) -> None:
         "results": {},
         "meta": None,
     }
+    nusc_seg_result = {
+        "results": {},
+        "meta": None,
+    }
 
     # Load detection results
     detections = dataset.get_det_results(cfg["DETECTION"]["bbox_score"], NUSCENES_TRACKING_NAMES)
@@ -411,15 +415,6 @@ def main(parser) -> None:
 
         # Get Radar targets
         radar_pc = dataset.get_key_radar_pc(token)
-        # Transform list of [x, y, z, vx, vy] to list of {'pose':[x, y], 'vel':mirror_velocity, 'vel_comp':[vx, vy]}
-        radar_targets = []
-        for point in radar_pc:
-            radar_targets.append({
-                'pose': point[:2],
-                'translation': point[:2],
-                'vel': np.sqrt(point[3]**2 + point[4]**2),
-                'vel_comp': point[3:5],
-            })
 
         # Radar segmentation with LiDAR detection
         det_for_viz = deepcopy(det)
@@ -428,6 +423,17 @@ def main(parser) -> None:
 
         segResult, segDelay = cal_func_time(radarSeg.run, radarTargets=radar_pc, lidarDet=det)
         radarSeg.reset()
+        segResultList = []
+        for point in segResult:
+            seg = {
+                "sample_token": token,
+                "translation": list(point[:3]),
+                "velocity": list(point[3:5]),
+                "segment_id": int(point[5]),
+                "category": int(point[6]),
+            }
+            segResultList.append(seg)
+        nusc_seg_result["results"].update({token: deepcopy(segResultList)})
 
         # Tracking for LiDAR and Radar respectively
         lidar_trks, LtrkDelay = cal_func_time(lidar_tracker.step_centertrack, results=det, time_lag=time_lag)
@@ -581,16 +587,26 @@ def main(parser) -> None:
         "use_map": False,
         "use_external": False,
     }
+    nusc_seg_result["meta"] = {
+        "use_camera": False,
+        "use_lidar": True,
+        "use_radar": True,
+        "use_map": False,
+        "use_external": False,
+    }
 
     # write result file
     lidar_res_path = os.path.join(root_path, 'lidar_tracking_res.json')
     radar_res_path = os.path.join(root_path, 'radar_tracking_res.json')
+    seg_res_path = os.path.join(root_path, 'radar_seg_res.json')
     with open(lidar_res_path, 'w') as f:
         json.dump(nusc_LiDAR_trk, f)
     with open(radar_res_path, 'w') as f:
         json.dump(nusc_Radar_trk, f)
     with open(track_res_path, 'w') as f:
         json.dump(nusc_fusion_trk, f)
+    with open(seg_res_path, 'w') as f:
+        json.dump(nusc_seg_result, f)
     print(f"tracking results write to {track_res_path}\n")
 
     # Evaluation

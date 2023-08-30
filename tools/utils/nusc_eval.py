@@ -49,6 +49,7 @@ if __name__ == "__main__":
     parser.add_argument("--version", required=True)
     parser.add_argument("--range", type=int, default=None)
     parser.add_argument("--tp_dist", type=float, default=None)
+    parser.add_argument("--mark", type=str, default=None)
     args = parser.parse_args()
 
     dataroot = args.dataroot
@@ -68,12 +69,20 @@ if __name__ == "__main__":
             "motorcycle": range,
             "bicycle": range
         }
-    out_dir = os.path.join(result_path, f"eval_{str(range)}_{int(args.tp_dist)}_998")
+    if args.tp_dist is None:
+        tp_dist = "default"
+    else:
+        tp_dist = args.tp_dist
+
+    if args.mark:
+        out_dir = os.path.join(result_path, f"eval_{str(range)}_{str(tp_dist)}_{args.mark}")
+    else:
+        out_dir = os.path.join(result_path, f"eval_{str(range)}_{str(tp_dist)}")
     mkdir_or_exist(out_dir)
     print(f"\nResult path: {result_path}")
     print(f"\nEvaluating {args.version} using dataset from '{dataroot}'...\n")
     nusc_eval(
-            os.path.join(result_path, 'tracking_result.json'),
+            os.path.join(result_path, 'lidar_tracking_res.json'),
             eval_set="val",
             out_dir=out_dir,
             dataroot=dataroot,
