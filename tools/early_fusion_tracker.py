@@ -257,7 +257,6 @@ class PubTracker(object):
             else:
                 cat_num = int(g[0][6])
                 cat_name = decodeCategory([cat_num], self.tracking_names)[0]
-                print(len(g), k, cat_name)
                 translation = np.mean(np.array(g)[:, :3], axis=0)
                 velocity = np.mean(np.array(g)[:, 3:5], axis=0)
                 obj = self._formatObj(translation, velocity, cat_name, score=0.5)   # Hardcore score currently
