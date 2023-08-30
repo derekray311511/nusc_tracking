@@ -15,9 +15,6 @@ NUSCENES_TRACKING_NAMES = [
     'pedestrian',
     'trailer',
     'truck',
-    # 'construction_vehicle',
-    # 'barrier',
-    # 'traffic_cone',
     'background'
 ]
 
@@ -249,6 +246,7 @@ class PubTracker(object):
             radarObj: list of dict {'translation': [x, y, z], 'velocity': [vx, vy], 'detection_name': str}
         """
         ret = []
+        radarSeg = radarSeg[radarSeg[:, 5].argsort()]
         for k, g in itertools.groupby(radarSeg, lambda x: x[5]):
             g = list(g)
             if k == -1: # background radar targets (no category name)
@@ -259,6 +257,7 @@ class PubTracker(object):
             else:
                 cat_num = int(g[0][6])
                 cat_name = decodeCategory([cat_num], self.tracking_names)[0]
+                print(len(g), k, cat_name)
                 translation = np.mean(np.array(g)[:, :3], axis=0)
                 velocity = np.mean(np.array(g)[:, 3:5], axis=0)
                 obj = self._formatObj(translation, velocity, cat_name, score=0.5)   # Hardcore score currently
