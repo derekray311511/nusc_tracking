@@ -188,6 +188,7 @@ class RadarSegmentor:
     """
     def __init__(self, cfg):
         self.categories = cfg["detCategories"]
+        self.track_cat = NUSCENES_TRACKING_NAMES
         self.expand_rotio = cfg["expand_ratio"]
         self.fuse_vel = cfg["fuse_velocity"]
         self.id_count = 0
@@ -220,11 +221,14 @@ class RadarSegmentor:
         lidarDet.sort(reverse=True, key=lambda box:box['detection_score'])
 
         # Prepare radar center x, y
-        pts = []
-        for p in radarTargets:
-            pts.append(p[:2])
+        pts = np.array([p[:2] for p in radarTargets])  # Extract x, y coordinates
         radarTargets = np.array(radarTargets)
-        pts = np.array(pts)
+
+        # Create a mask for filtering points and targets
+        remaining_idxs = np.arange(len(pts))
+
+        # Set init id and cat
+        radarTargets = np.hstack([radarTargets, -np.ones((len(radarTargets), 2))])
 
         # Segment radar targets
         for det in lidarDet:
@@ -232,38 +236,36 @@ class RadarSegmentor:
             center = det['translation'][:2]
             size = [det['size'][1] * ratio[1] , det['size'][0] * ratio[0]]
             det_vel = det['velocity']
-            cat_num = encodeCategory([det['detection_name']], self.categories)[0]
+            cat_num = encodeCategory([det['detection_name']], self.track_cat)[0]
             row, pitch, angle = euler_from_quaternion(q_to_xyzw(det['rotation']))
-            inbox_idxs = is_points_inside_obb(pts, center, size, angle)
+            inbox_idxs = is_points_inside_obb(pts[remaining_idxs], center, size, angle)
             
-            # Give radar targets segmentation id
-            temp_targets = radarTargets[inbox_idxs]
-            if len(temp_targets) == 0:
+            # Use boolean masks for filtering instead of indexing
+            temp_idxs = remaining_idxs[inbox_idxs]
+            if len(temp_idxs) == 0:
                 continue
-            temp_targets = np.hstack([temp_targets, (np.ones(len(temp_targets)) * (self.id_count)).reshape(-1, 1)])
+
+            # Give radar targets segmentation id
+            radarTargets[temp_idxs, 5] = self.id_count
 
             # Give radar targets category name
-            temp_targets = np.hstack([temp_targets, cat_num * np.ones((len(temp_targets), 1))])
+            radarTargets[temp_idxs, 6] = cat_num
 
             # Use LiDAR detection velocity
             if self.fuse_vel:
-                temp_targets[:, 3:5] = det_vel[:2]
+                for idx in temp_idxs:
+                    radarTargets[idx, 3:5] = det_vel[:2]
 
-            radarSegmentation.append(temp_targets)
+            radarSegmentation.append(radarTargets[temp_idxs])
             self.id_count += 1
-            radarTargets = radarTargets[~inbox_idxs]
-            pts = pts[~inbox_idxs]
+            remaining_idxs = remaining_idxs[~inbox_idxs]  # Update remaining_idxs using the opposite mask
 
+        # Mark remaining points as none segmented targets
         # Give none segmented targets -1 as id
-        radarTargets = np.hstack([radarTargets, -np.ones((len(radarTargets), 2))])
+        remaining_targets = radarTargets[remaining_idxs]
+        self.radarSegmentation = radarTargets
 
-        if len(radarSegmentation) > 0:
-            radarSegmentation = np.vstack([np.array(seg) for seg in radarSegmentation])
-            self.radarSegmentation = np.concatenate((radarSegmentation, radarTargets), axis=0)
-        else:
-            self.radarSegmentation = radarTargets
-
-        return self.radarSegmentation
+        return radarTargets
 
 def get_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="LRFusion Tracking")
@@ -288,6 +290,7 @@ def main(parser) -> None:
     root_path = args.out_dir
     
     cfg["EVALUATE"]["out_dir"] = os.path.join(root_path, 'eval')
+    cfg["EVALUATE"]["out_dir"] += "_" + str(cfg["EVALUATE"]["custom_range"]["car"]) + "_" + str(cfg["EVALUATE"]["dist_th_tp"])
 
     # Prepare results saving path / Copy parameters and code
     print(f"CONFIG:\n{yaml.dump(cfg, sort_keys=False)}\n")
