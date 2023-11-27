@@ -3,6 +3,9 @@ import math
 from nuscenes.utils.geometry_utils import transform_matrix
 from pyquaternion import Quaternion
 
+def eucl2D(a, b):
+    return math.sqrt((a[0] - b[0]) ** 2 + (a[1] - b[1]) ** 2)
+    
 def get_4f_transform(pose, inverse=False):
     return transform_matrix(pose['translation'], Quaternion(pose['rotation']), inverse=inverse)
 
