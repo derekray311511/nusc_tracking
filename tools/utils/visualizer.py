@@ -71,10 +71,17 @@ class TrackVisualizer:
             p = np.round(p).astype(int)
             cv2.circle(self.image, p, 4, BGRcolor, -1)
 
-    def draw_bboxes(self, corners: np.ndarray, BGRcolor=(255, 150, 150), thickness=2):
-        for box in corners:
-            box = np.round(box).astype(int)
-            cv2.drawContours(self.image, [box], 0, BGRcolor, thickness)
+    def draw_bboxes(self, corners: np.ndarray, BGRcolor=(255, 150, 150), thickness=2, alpha=1.0):
+        if alpha == 1.0:
+            for box in corners:
+                box = np.round(box).astype(int)
+                cv2.drawContours(self.image, [box], 0, BGRcolor, thickness=thickness)
+        else:
+            boxes_image = np.zeros_like(self.image)
+            for box in corners:
+                box = np.round(box).astype(int)
+                cv2.drawContours(boxes_image, [box], 0, BGRcolor, thickness=thickness)
+            self.image = cv2.addWeighted(self.image, 1, boxes_image, alpha, 0)
 
     def draw_radar_pts(self, radar_pc: list, trans: np.ndarray, BGRcolor=(50, 50, 255), showContours=False):
         """Param :
@@ -202,7 +209,7 @@ class TrackVisualizer:
                 cat_num = encodeCategory([k], self.viz_cat)[0]
                 BGRcolor = self.trk_colorMap[k]
                 corners2d = self.getBoxCorners2d(g_det)
-                self.draw_bboxes(corners2d, BGRcolor, thickness)
+                self.draw_bboxes(corners2d, BGRcolor, thickness, **kwargs)
                 if draw_vel:
                     self._draw_vel(g_det, BGRcolor, thickness)
                 if draw_id:
@@ -212,20 +219,24 @@ class TrackVisualizer:
                 # BGRcolor = getColorFromID(ID=det['tracking_id'], colorRange=(50, 255))
                 BGRcolor = getColorFromID_HSV(ID=det['tracking_id'], cycle_num=12)
                 corners2d = self.getBoxCorners2d([det])
-                self.draw_bboxes(corners2d, BGRcolor, thickness)
+                self.draw_bboxes(corners2d, BGRcolor, thickness, **kwargs)
                 if draw_vel:
                     self._draw_vel([det], BGRcolor, thickness)
                 if draw_id:
                     self._draw_id([det], BGRcolor)
         else:   # Draw all boxes using same BGRcolor
             corners2d = self.getBoxCorners2d(nusc_det)
-            self.draw_bboxes(corners2d, BGRcolor, thickness)
+            self.draw_bboxes(corners2d, BGRcolor, thickness, **kwargs)
             if draw_vel:
                 self._draw_vel(nusc_det, BGRcolor, thickness)
             if draw_id:
                 self._draw_id(nusc_det, BGRcolor)
 
-    def _draw_vel(self, nusc_det: list, BGRcolor=(255, 255, 255), thickness=1):
+    def _draw_vel(self, nusc_det: list, BGRcolor=(255, 255, 255), thickness=1, alpha=1.0):
+        if alpha == 1.0:
+            image = self.image
+        else:
+            image = np.zeros_like(self.image)
         for det in nusc_det:
             vel = det['velocity'][:2]
             if np.linalg.norm(vel) < 0.2:
@@ -234,16 +245,24 @@ class TrackVisualizer:
             end_point = start_point + vel
             start_point = np.round(start_point).astype(int)
             end_point = np.round(end_point).astype(int)
-            self.image = cv2.arrowedLine(self.image, start_point, end_point, BGRcolor, thickness)
+            image = cv2.arrowedLine(image, start_point, end_point, BGRcolor, thickness)
+        if alpha != 1.0:
+            self.image = cv2.addWeighted(self.image, 1, image, alpha, 0)
 
-    def _draw_id(self, nusc_det: list, BGRcolor=(255, 255, 255), fontScale=0.8, thickness=1):
+    def _draw_id(self, nusc_det: list, BGRcolor=(255, 255, 255), fontScale=0.8, thickness=1, alpha=1.0):
+        if alpha == 1.0:
+            image = self.image
+        else:
+            image = np.zeros_like(self.image)
         font = cv2.FONT_HERSHEY_SIMPLEX
         fontScale = fontScale
         for det in nusc_det:
             org = det['translation'][:2]
             org = np.round(org).astype(int)
             ID = int(det['tracking_id'])
-            self.image = cv2.putText(self.image, str(ID), org, font, fontScale, BGRcolor, thickness, cv2.LINE_AA)
+            image = cv2.putText(image, str(ID), org, font, fontScale, BGRcolor, thickness, cv2.LINE_AA)
+        if alpha != 1.0:
+            self.image = cv2.addWeighted(self.image, 1, image, alpha, 0)
 
     def _draw_grid(self, img, grid_shape, color=(0, 255, 0), thickness=1):
         h, w, _ = img.shape
