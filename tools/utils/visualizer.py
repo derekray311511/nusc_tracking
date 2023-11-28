@@ -191,6 +191,9 @@ class TrackVisualizer:
             return
         nusc_det = deepcopy(nusc_det)
         nusc_det = self.world2ego(nusc_det, trans)
+        if 'detection_name' not in nusc_det[0]:
+            for det in nusc_det:
+                det['detection_name'] = det['tracking_name']
         for det in nusc_det:
             # Nusc to image x, y coordinates (Flip y axis)
             det['translation'][:2] *= np.array([1, -1])
@@ -333,6 +336,7 @@ def getColorFromID(baseColor=(100, 100, 100), colorRange=(155, 255), ID=-1) -> t
 
 def getColorFromID_HSV(baseColor=(100, 100, 100), ID=-1, cycle_num=12):
     # Generate colors using HSV color space
+    ID = float(ID)
     if ID == -1:
         return baseColor
     else:
