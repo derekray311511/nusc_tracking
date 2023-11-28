@@ -71,7 +71,7 @@ class TrackVisualizer:
             p = np.round(p).astype(int)
             cv2.circle(self.image, p, 4, BGRcolor, -1)
 
-    def draw_bboxes(self, corners: np.ndarray, BGRcolor=(255, 150, 150), thickness=2, alpha=1.0):
+    def draw_bboxes(self, corners: np.ndarray, BGRcolor=(255, 150, 150), thickness=2, alpha=1.0, **kwargs):
         if alpha == 1.0:
             for box in corners:
                 box = np.round(box).astype(int)
@@ -211,9 +211,9 @@ class TrackVisualizer:
                 corners2d = self.getBoxCorners2d(g_det)
                 self.draw_bboxes(corners2d, BGRcolor, thickness, **kwargs)
                 if draw_vel:
-                    self._draw_vel(g_det, BGRcolor, thickness)
+                    self._draw_vel(g_det, BGRcolor, thickness, **kwargs)
                 if draw_id:
-                    self._draw_id(g_det, BGRcolor)
+                    self._draw_id(g_det, BGRcolor, **kwargs)
         elif colorID and ('tracking_id' in nusc_det[0]):
             for det in nusc_det:
                 # BGRcolor = getColorFromID(ID=det['tracking_id'], colorRange=(50, 255))
@@ -221,18 +221,18 @@ class TrackVisualizer:
                 corners2d = self.getBoxCorners2d([det])
                 self.draw_bboxes(corners2d, BGRcolor, thickness, **kwargs)
                 if draw_vel:
-                    self._draw_vel([det], BGRcolor, thickness)
+                    self._draw_vel([det], BGRcolor, thickness, **kwargs)
                 if draw_id:
-                    self._draw_id([det], BGRcolor)
+                    self._draw_id([det], BGRcolor, **kwargs)
         else:   # Draw all boxes using same BGRcolor
             corners2d = self.getBoxCorners2d(nusc_det)
             self.draw_bboxes(corners2d, BGRcolor, thickness, **kwargs)
             if draw_vel:
-                self._draw_vel(nusc_det, BGRcolor, thickness)
+                self._draw_vel(nusc_det, BGRcolor, thickness, **kwargs)
             if draw_id:
-                self._draw_id(nusc_det, BGRcolor)
+                self._draw_id(nusc_det, BGRcolor, **kwargs)
 
-    def _draw_vel(self, nusc_det: list, BGRcolor=(255, 255, 255), thickness=1, alpha=1.0):
+    def _draw_vel(self, nusc_det: list, BGRcolor=(255, 255, 255), thickness=1, alpha=1.0, **kwargs):
         if alpha == 1.0:
             image = self.image
         else:
@@ -249,7 +249,7 @@ class TrackVisualizer:
         if alpha != 1.0:
             self.image = cv2.addWeighted(self.image, 1, image, alpha, 0)
 
-    def _draw_id(self, nusc_det: list, BGRcolor=(255, 255, 255), fontScale=0.8, thickness=1, alpha=1.0):
+    def _draw_id(self, nusc_det: list, BGRcolor=(255, 255, 255), fontScale=0.8, thickness=1, alpha=1.0, **kwargs):
         if alpha == 1.0:
             image = self.image
         else:
