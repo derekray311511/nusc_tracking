@@ -262,7 +262,7 @@ class TrackVisualizer:
         for det in nusc_det:
             org = det['translation'][:2]
             org = np.round(org).astype(int)
-            ID = int(det['tracking_id'])
+            ID = int(float(det['tracking_id']))
             image = cv2.putText(image, str(ID), org, font, fontScale, BGRcolor, thickness, cv2.LINE_AA)
         if alpha != 1.0:
             self.image = cv2.addWeighted(self.image, 1, image, alpha, 0)
@@ -336,7 +336,7 @@ def getColorFromID(baseColor=(100, 100, 100), colorRange=(155, 255), ID=-1) -> t
 
 def getColorFromID_HSV(baseColor=(100, 100, 100), ID=-1, cycle_num=12):
     # Generate colors using HSV color space
-    ID = float(ID)
+    ID = int(float(ID))
     if ID == -1:
         return baseColor
     else:
