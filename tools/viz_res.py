@@ -89,25 +89,25 @@ def analyze_res(
     ):
     # Show the numbers of targets in each frame with categories
     if trk1 is not None and trk2 is not None:
-        print("trk1: ", len(trk1), "trk2: ", len(trk2))
         trk1_categories = [obj['tracking_name'] for obj in trk1]
         trk2_categories = [obj['tracking_name'] for obj in trk2]
         trk1_category_counts = {category: trk1_categories.count(category) for category in set(trk1_categories)}
         trk2_category_counts = {category: trk2_categories.count(category) for category in set(trk2_categories)}
-        print("trk1: ", trk1_category_counts); print("trk2: ", trk2_category_counts)
+        print("trk1 len:", len(trk1),", trk2 len:", len(trk2))
+        print("trk1:", trk1_category_counts); print("trk2: ", trk2_category_counts)
         # Show gt numbers of targets in each frame with categories
         if gt is None:
             pass
-        print("gt: ", len(gt))
         gt_categories = [obj['detection_name'] for obj in gt]
         gt_category_counts = {category: gt_categories.count(category) for category in set(gt_categories)}
-        print("gt: ", gt_category_counts)
+        print("gt:", len(gt))
+        print("gt:", gt_category_counts)
 
         # Calculate TP, FP, FN in each frame
-        TP, FP, FN, matched_predictions = evaluate_nuscenes(trk1, gt)
-        print("trk1: ", TP, FP, FN)
-        TP, FP, FN, matched_predictions = evaluate_nuscenes(trk2, gt)
-        print("trk2: ", TP, FP, FN)
+        eval_trk1 = (TP, FP, FN, matched_predictions) = evaluate_nuscenes(trk1, gt)
+        print("trk1 FP, FP, FN: ", eval_trk1[:3])
+        eval_trk2 = (TP, FP, FN, matched_predictions) = evaluate_nuscenes(trk2, gt)
+        print("trk2 FP, FP, FN: ", eval_trk2[:3])
 
 
 def get_parser() -> argparse.ArgumentParser:
@@ -244,6 +244,8 @@ def main(parser) -> None:
 
         analyze_res(trk1, trk2, radarSeg, radarTrk, gt, None, 
                     image=np.ones((trackViz.height, trackViz.width, 3), dtype=np.uint8) * trackViz.background_color)
+
+        print()
         
 
 if __name__ == "__main__":
