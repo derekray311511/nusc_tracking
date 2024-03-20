@@ -3,27 +3,39 @@ DATASET:
     split: "val"
     dataroot: "/data/nuscenes"
     lidar_det_path: "/data/track_result_bboxth-0.0/detection_result.json"
+    # lidar_det_path: "/data/detection_result.json"
+    lidar_pc_path: None
     radar_pc_path: "/data/radar_PC/radar_PC_13Hz_with_vcomp.json"
     frames_meta_path: "/data/meta_data/frames_meta.json"
+    groundTruth_path: "/data/meta_data/annotations.json"
 
 EVALUATE:
     dataroot: "/data/small_data2"
     eval_set: "val"
     out_dir: None
     res_path: None
-    dist_th_tp: 2.0    # Default with 2
+    # dist_th_tp: 2.0    # Default with 2
+    # custom_range: 
+    #     bicycle: 40
+    #     motorcycle: 40
+    #     pedestrian: 40
+    #     bus: 50
+    #     car: 50
+    #     trailer: 50
+    #     truck: 50
+    dist_th_tp: 5.0
     custom_range: 
-        bicycle: 40
-        motorcycle: 40
-        pedestrian: 40
-        bus: 50
-        car: 50
-        trailer: 50
-        truck: 50
+        bicycle: 100
+        motorcycle: 100
+        pedestrian: 100
+        bus: 100
+        car: 100
+        trailer: 100
+        truck: 100
 
 DETECTION: 
     bbox_score: 0.01
-    use_nms: True
+    use_nms: False
     nms_th: 0.5
 
 SEGMENTOR:
@@ -31,11 +43,11 @@ SEGMENTOR:
         # - 'bicycle'
         - 'bus'
         - 'car'
-        - 'motorcycle'
+        # - 'motorcycle'
         - 'trailer'
         - 'truck'
         # - 'pedestrian'
-    expand_ratio: [1.5, 1.5]    # w, l
+    expand_ratio: [1.2, 1.2]    # w, l
     fuse_velocity: True
     
 LIDAR_TRACKER:
@@ -83,7 +95,8 @@ VISUALIZER:
         - 'truck'
         - 'pedestrian'
     range_: [200, 200]
-    windowSize: [1000, 1000]
+    screenSize: [1920, 1080]
+    windowSize: [920, 1000]
     imgSize: [1600, 1600]
     duration: 0.1
     background_color: [50, 50, 50]
@@ -113,3 +126,11 @@ VISUALIZER:
         BGRcolor: [198, 235, 52]
         draw_vel: True
         draw_id: False
+    groundTruth:
+        colorName: False
+        colorID: False
+        BGRcolor: [50, 50, 240]
+        draw_vel: False
+        draw_id: False
+        thickness: -1   # Filled
+        alpha: 0.5
