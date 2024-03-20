@@ -33,6 +33,7 @@ class TrackVisualizer:
         self.duration = duration
         self.windowName = windowName
         self.window = cv2.namedWindow(self.windowName, cv2.WINDOW_NORMAL)
+        self.windowSize = np.array(windowSize, dtype=np.uint8)
         self.background_color = np.array(background_color, dtype=np.uint8)
         self.grid = grid
         self.image = np.ones((self.height, self.width, 3), dtype=np.uint8) * self.background_color
