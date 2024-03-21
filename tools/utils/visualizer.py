@@ -236,6 +236,35 @@ class TrackVisualizer:
             if draw_id:
                 self._draw_id(nusc_det, BGRcolor, **kwargs)
 
+    def drawTP_FP_FN(
+        self, 
+        predictions, 
+        ground_truths, 
+        matched_predictions, 
+        matched_gt,
+        trans: np.ndarray, 
+        thickness=2,
+        **kwargs
+        ):
+        # (TP in green, FP in red, FN in blue)
+        TP = []
+        FP = []
+        FN = []
+        for gt in ground_truths:
+            if gt not in matched_gt:
+                FN.append(gt)
+        
+        # get TP and FP boxes 
+        for pred in predictions:
+            if pred in matched_predictions:
+                TP.append(pred)
+            else:
+                FP.append(pred)
+
+        self.draw_det_bboxes(TP, trans, BGRcolor=(0, 255, 0), thickness=thickness)
+        self.draw_det_bboxes(FP, trans, BGRcolor=(0, 0, 255), thickness=thickness)
+        self.draw_det_bboxes(FN, trans, BGRcolor=(255, 0, 0), thickness=thickness)
+
     def _draw_vel(self, nusc_det: list, BGRcolor=(255, 255, 255), thickness=1, alpha=1.0, **kwargs):
         if alpha == 1.0:
             image = self.image
