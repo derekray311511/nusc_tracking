@@ -38,6 +38,7 @@ NUSCENES_TRACKING_NAMES = [
     'trailer',
     'truck',
 ]
+RADAR_TRACKING_NAMES = NUSCENES_TRACKING_NAMES + ['background']
 
 # 99.9 percentile of the l2 velocity error distribution (per class / 0.5 second)
 # This is an earlier statistics and I didn't spend much time tuning it.
@@ -60,6 +61,7 @@ class nusc_dataset:
         self.nusc_version = cfg["nusc_version"]
         self.dataroot = cfg["dataroot"]
         # self.nusc = NuScenes(version=nusc_version, dataroot=nusc_path, verbose=True)
+        self.gt = self.load_groundTruth(cfg["groundTruth_path"])
         self.split = cfg["split"]
         self.categories = NUSCENES_TRACKING_NAMES
         self.det_res = self.load_detections(cfg["lidar_det_path"])
@@ -74,6 +76,11 @@ class nusc_dataset:
             sys.exit("Not support test data yet!")
         else:
             sys.exit(f"No split type {self.split}!")
+
+    def load_groundTruth(self, path):
+        with open(path, 'rb') as f:
+            gt = json.load(f)['samples']
+        return gt
 
     def load_detections(self, path):
         with open(path, 'rb') as f:
@@ -122,6 +129,9 @@ class nusc_dataset:
 
     def get_frames_meta(self):
         return self.frames['frames']
+
+    def get_groundTruth(self):
+        return self.gt
     
     def get_key_radar_pc(self, key_token):
         return self.key_radar_PCs[key_token]['points']
@@ -377,6 +387,7 @@ def main(parser) -> None:
     # Load detection results
     detections = dataset.get_det_results(cfg["DETECTION"]["bbox_score"], NUSCENES_TRACKING_NAMES)
     frames = dataset.get_frames_meta()
+    gts = dataset.get_groundTruth()
     len_frames = len(frames)
 
     # start tracking *****************************************
@@ -390,6 +401,9 @@ def main(parser) -> None:
         token = frames[i]['token']
         timestamp = frames[i]['timestamp']
         ego_pose = frames[i]['ego_pose']
+        gt = gts[i]['anns']
+        for obj in gt:
+            obj['velocity'] = np.array([0.0, 0.0])
         name = "{}-{}".format(timestamp, token)
 
         # Reset tracker if this is first frame of the sequence
@@ -472,7 +486,7 @@ def main(parser) -> None:
             trk['size'] = [1.0, 1.0, 1.0]    # pseudo size
             trk['tracking_score'] = trk['detection_score']
             radar_active_trks.append(trk)
-            if trk['detection_name'] in NUSCENES_TRACKING_NAMES:
+            if trk['detection_name'] in RADAR_TRACKING_NAMES:
                 nusc_trk = {
                     "sample_token": token,
                     "translation": list(trk['translation']),
@@ -548,6 +562,7 @@ def main(parser) -> None:
             trackViz2.draw_radar_seg(segResult, trans, **cfg["VISUALIZER"]["radarSeg"])
             trackViz2.draw_det_bboxes(fusion_active_trks, trans, **cfg["VISUALIZER"]["fusionBox"])
             # trackViz2.draw_det_bboxes(radar_active_trks, trans, **cfg["VISUALIZER"]["radarTrkBox"])
+            trackViz2.draw_det_bboxes(gt, trans, **cfg["VISUALIZER"]["groundTruth"])
             trackViz.show()
             trackViz2.show()
             viz_end = time.time()

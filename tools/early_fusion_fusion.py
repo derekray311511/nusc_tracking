@@ -45,6 +45,8 @@ FUSION_NAMES = [
     'motorcycle',
     'trailer',
     'truck',
+    'bicycle',
+    'pedestrian',
 ]
 
 
@@ -219,6 +221,8 @@ class Fusion(object):
 
         # initialize joined output
         outputs = []
+        # current_LIDAR_outputIDs = []
+        outputs_ids = []
 
         # go through all FIRST MODALITY tracklets
         for tracklet_id in range(len(tracks1)):
@@ -235,7 +239,7 @@ class Fusion(object):
                     tracklet2['detection_score'] -= self.decay2
 
                 # apply score update function (use eq. 6 [multiplication])
-                tracklet['detection_score'] = 1 - (1 - tracklet1['detection_score']) * (1 - tracklet2['detection_score'])
+                # tracklet['detection_score'] = 1 - (1 - tracklet1['detection_score']) * (1 - tracklet2['detection_score'])
 
                 # if score is too low (below deletion threshold), dump this tracklet
                 # (with current update function, the score of matched tracklets should always grow,
@@ -289,6 +293,7 @@ class Fusion(object):
                 self.commonCat[tracklet['tracking_id']] = tracklet['detection_name']
 
                 # add current tracklet to the tracklets list
+                outputs_ids.append(tracklet['tracking_id'])
                 outputs.append(tracklet)
 
             # UNMATCHED TRACKLETS of first modality:
@@ -313,6 +318,8 @@ class Fusion(object):
                 self.commonCat[tracklet['tracking_id']] = tracklet['detection_name']
 
                 # add current tracklet to the tracklets list
+                # current_LIDAR_outputIDs.append(tracklet['tracking_id'])
+                outputs_ids.append(tracklet['tracking_id'])
                 outputs.append(tracklet)
 
         # go through all SECOND MODALITY tracklets
@@ -336,13 +343,26 @@ class Fusion(object):
 
                 # save the (new) tracking id
                 tracklet['tracking_id'] = self.id_log['set2'][self.id_log['set2'][:, 0] == tracklet['tracking_id']][0][1]
+                
+                # # Don't output this track if LiDAR already output this ID
+                # if tracklet['tracking_id'] in current_LIDAR_outputIDs:
+                #     continue
 
                 # Get the size in the history frames
-                if tracklet['tracking_id'] in self.commonSize:
+                if tracklet['tracking_id'] in self.commonSize and tracklet['tracking_id'] not in outputs_ids:
                     tracklet['size'] = np.array(self.commonSize[tracklet['tracking_id']])
                     tracklet['detection_name'] = self.commonCat[tracklet['tracking_id']]
+                    outputs_ids.append(tracklet['tracking_id'])
 
-                    # add current tracklet to the tracklets list
+                    # preserve = True
+                    # for dist in track_distances:
+                    #     if dist[tracklet_id] < 4.0:
+                    #         preserve = False
+
+                    # if preserve:
+                        # add current tracklet to the tracklets list
                     outputs.append(tracklet)
+                    # else:
+                    #     print("abandoned!")
 
         return outputs
