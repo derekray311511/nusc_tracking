@@ -82,7 +82,7 @@ if __name__ == "__main__":
     print(f"\nResult path: {result_path}")
     print(f"\nEvaluating {args.version} using dataset from '{dataroot}'...\n")
     nusc_eval(
-            os.path.join(result_path, 'lidar_tracking_res.json'),
+            os.path.join(result_path, 'tracking_result.json'),
             eval_set="val",
             out_dir=out_dir,
             dataroot=dataroot,
