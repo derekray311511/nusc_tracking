@@ -83,6 +83,20 @@ class TrackEval(object):
         self.trackEval_1 = TrackingEvaluation()
         self.trackEval_2 = TrackingEvaluation()
         self.total_data = {'trk1': [0, 0, 0], 'trk2': [0, 0, 0]}
+        self.score_history = {'trk1': {}, 'trk2': {}}   # id : score list
+
+    def record_score(self, trk, score_history):
+        for obj in trk:
+            tracking_id = int(float(obj['tracking_id']))
+            if tracking_id not in score_history:
+                score_history[tracking_id] = []
+            score_history[tracking_id].append(obj['tracking_score'])
+
+    def get_average_score(self, score_history):
+        avg_score = {}
+        for id, scores in score_history.items():
+            avg_score[id] = sum(scores) / len(scores)
+        return avg_score
 
     def get_matched_objects(self, matched_ids, objects):
         """
@@ -144,6 +158,19 @@ class TrackEval(object):
 
             mota_1.reset()
             mota_2.reset()
+
+            # self.record_score(trk1, self.score_history['trk1'])
+            # self.record_score(trk2, self.score_history['trk2'])
+            # avg_score_trk1 = self.get_average_score(self.score_history['trk1'])
+            # avg_score_trk2 = self.get_average_score(self.score_history['trk2'])
+            # sorted_avg_score_trk1 = dict(sorted(avg_score_trk1.items(), key=lambda x: x[0]))
+            # sorted_avg_score_trk2 = dict(sorted(avg_score_trk2.items(), key=lambda x: x[0]))
+            # print("Score trk1:")
+            # for key, value in sorted_avg_score_trk1.items():
+            #     print(f"{key}: {value}")
+            # print("Score trk2:")
+            # for key, value in sorted_avg_score_trk2.items():
+            #     print(f"{key}: {value}")
 
         return (matched_pred_trk1, matched_gt_trk1), (matched_pred_trk2, matched_gt_trk2)
 
@@ -247,11 +274,14 @@ def main(parser) -> None:
         elif key == ord('g'):
             for win in winList:
                 win.grid = not win.grid
-        elif key == 13:
+        elif key == 13: # enter
             for win in winList:
                 winName = win.windowName
                 det_idx = cv2.getTrackbarPos('Frame', winName)
-                idx = det_idx if det_idx != idx else idx
+                if det_idx != idx:
+                    idx = det_idx
+                    break
+                    
 
         if idx < 0:
             idx = 0
@@ -276,6 +306,8 @@ def main(parser) -> None:
         else:
             accumulate = False
         idx_record.add(idx)
+        if frames[idx]['first']:
+            trackEval.score_history = {'trk1': {}, 'trk2': {}}
         eval_trk1, eval_trk2 = trackEval.analyze_res(trk1, trk2, gt, accumulate=accumulate)
 
         trans = dataset.get_4f_transform(ego_pose, inverse=True)
