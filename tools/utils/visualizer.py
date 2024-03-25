@@ -246,10 +246,17 @@ class TrackVisualizer:
         thickness=2,
         **kwargs
         ):
+        if len(predictions) == 0 and len(ground_truths) == 0:
+            return
+        predictions = deepcopy(predictions)
+        ground_truths = deepcopy(ground_truths)
         # (TP in green, FP in red, FN in blue)
         TP = []
         FP = []
         FN = []
+        tp_color = (0, 255, 0)
+        fp_color = (0, 0, 255)
+        fn_color = (255, 0, 0)
         for gt in ground_truths:
             if gt not in matched_gt:
                 FN.append(gt)
@@ -261,9 +268,25 @@ class TrackVisualizer:
             else:
                 FP.append(pred)
 
-        self.draw_det_bboxes(TP, trans, BGRcolor=(0, 255, 0), thickness=thickness)
-        self.draw_det_bboxes(FP, trans, BGRcolor=(0, 0, 255), thickness=thickness)
-        self.draw_det_bboxes(FN, trans, BGRcolor=(255, 0, 0), thickness=thickness)
+        # draw legend on the top left corner
+        legend_x = 20
+        legend_y = 20
+        legend_spacing = 40
+
+        legends = [
+            (tp_color, f"TP: {len(TP)} True Positive"),
+            (fp_color, f"FP: {len(FP)} False Positive"),
+            (fn_color, f"FN: {len(FN)} False Negative")
+        ]
+
+        for color, text in legends:
+            cv2.rectangle(self.image, (legend_x, legend_y), (legend_x + 30, legend_y + 30), color, thickness)
+            cv2.putText(self.image, text, (legend_x + 50, legend_y + 30), cv2.FONT_HERSHEY_SIMPLEX, 1.5, color, 2)
+            legend_y += legend_spacing
+
+        self.draw_det_bboxes(TP, trans, BGRcolor=tp_color, thickness=thickness)
+        self.draw_det_bboxes(FP, trans, BGRcolor=fp_color, thickness=thickness)
+        self.draw_det_bboxes(FN, trans, BGRcolor=fn_color, thickness=thickness)
 
     def _draw_vel(self, nusc_det: list, BGRcolor=(255, 255, 255), thickness=1, alpha=1.0, **kwargs):
         if alpha == 1.0:
