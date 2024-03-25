@@ -109,7 +109,7 @@ class TrackEval(object):
         else:
             return [obj for obj in objects if obj['instance_token'] in matched_ids]
 
-    def analyze_res(self, trk1=None, trk2=None, gt=None, accumulate=True):
+    def analyze_res(self, trk1=None, trk2=None, gt=None, distance_threshold=2.0, accumulate=True):
         # Show the numbers of targets in each frame with categories
         if trk1 is not None and trk2 is not None:
             trk1_categories = [obj['tracking_name'] for obj in trk1]
@@ -127,8 +127,8 @@ class TrackEval(object):
             print("gt:", gt_category_counts)
 
             # Calculate TP, FP, FN in each frame
-            mota_1, _ = self.trackEval_1.evaluate_nuscenes_mota(trk1, gt, distance_threshold=3.0)
-            mota_2, _ = self.trackEval_2.evaluate_nuscenes_mota(trk2, gt, distance_threshold=3.0)
+            mota_1, _ = self.trackEval_1.evaluate_nuscenes_mota(trk1, gt, distance_threshold=distance_threshold)
+            mota_2, _ = self.trackEval_2.evaluate_nuscenes_mota(trk2, gt, distance_threshold=distance_threshold)
             events = mota_1.events
             TP = len(events[events['Type'] == 'MATCH'])
             FP = len(events[events['Type'] == 'FP'])
@@ -192,7 +192,7 @@ def main(parser) -> None:
     if args.version is not None:
         version = args.version
     else:
-        version = "2024-03-18-11:43:1_fuseAllCat_multiRadarIDFix"
+        version = "2024-03-22-14:15:10_fuseAllCat_multiRadarIDFix_avgScore"
     print(f"Visualizing version: {version}...")
 
     dataset = nusc_dataset(cfg["DATASET"])
@@ -274,6 +274,8 @@ def main(parser) -> None:
         elif key == ord('g'):
             for win in winList:
                 win.grid = not win.grid
+        elif key == ord('i'):
+            cfg["VISUALIZER"]["trk_res"]["draw_id"] = not cfg["VISUALIZER"]["trk_res"]["draw_id"]
         elif key == 13: # enter
             for win in winList:
                 winName = win.windowName
@@ -308,7 +310,7 @@ def main(parser) -> None:
         idx_record.add(idx)
         if frames[idx]['first']:
             trackEval.score_history = {'trk1': {}, 'trk2': {}}
-        eval_trk1, eval_trk2 = trackEval.analyze_res(trk1, trk2, gt, accumulate=accumulate)
+        eval_trk1, eval_trk2 = trackEval.analyze_res(trk1, trk2, gt, distance_threshold=3.0, accumulate=accumulate)
 
         trans = dataset.get_4f_transform(ego_pose, inverse=True)
         viz_start = time.time()
