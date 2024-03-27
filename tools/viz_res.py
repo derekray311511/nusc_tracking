@@ -116,48 +116,76 @@ class TrackEval(object):
             trk2_categories = [obj['tracking_name'] for obj in trk2]
             trk1_category_counts = {category: trk1_categories.count(category) for category in set(trk1_categories)}
             trk2_category_counts = {category: trk2_categories.count(category) for category in set(trk2_categories)}
-            print("trk1 len:", len(trk1),", trk2 len:", len(trk2))
-            print("trk1:", trk1_category_counts); print("trk2: ", trk2_category_counts)
+
+            for obj in trk1:
+                obj['tracking_id'] = int(float(obj['tracking_id']))
+
+            id_list = [obj['tracking_id'] for obj in trk2]
+            if len(id_list) != len(set(id_list)):
+                print("Duplicate tracking IDs found in trk2.")
+            else:
+                print("No duplicate tracking IDs found in trk2.")
+
+            print("trk1 len:", len(trk1), ", trk2 len:", len(trk2))
+            print("trk1:", trk1_category_counts)
+            print("trk2:", trk2_category_counts)
+
             # Show gt numbers of targets in each frame with categories
             if gt is None:
                 pass
+
+            gt = deepcopy(gt)
             gt_categories = [obj['detection_name'] for obj in gt]
             gt_category_counts = {category: gt_categories.count(category) for category in set(gt_categories)}
+
             print("gt:", len(gt))
             print("gt:", gt_category_counts)
 
-            # Calculate TP, FP, FN in each frame
-            mota_1, _ = self.trackEval_1.evaluate_nuscenes_mota(trk1, gt, distance_threshold=distance_threshold)
-            mota_2, _ = self.trackEval_2.evaluate_nuscenes_mota(trk2, gt, distance_threshold=distance_threshold)
-            events = mota_1.events
-            TP = len(events[events['Type'] == 'MATCH'])
-            FP = len(events[events['Type'] == 'FP'])
-            FN = len(events[events['Type'] == 'MISS'])
-            if accumulate:
-                self.total_data['trk1'] += np.array([TP, FP, FN])
+            matched_pred_trk1, matched_gt_trk1 = [], []
+            matched_pred_trk2, matched_gt_trk2 = [], []
+            categories = set(trk1_categories + trk2_categories)
+            for category in categories:
+                # Filter predictions and ground truths for the current category
+                trk1_cat = [obj for obj in trk1 if obj['tracking_name'] == category]
+                trk2_cat = [obj for obj in trk2 if obj['tracking_name'] == category]
+                gt_cat = [obj for obj in gt if obj['detection_name'] == category]
+
+                # Calculate TP, FP, FN for the current category
+                mota_1_cat, _ = self.trackEval_1.evaluate_nuscenes_mota(trk1_cat, gt_cat, distance_threshold=distance_threshold)
+                mota_2_cat, _ = self.trackEval_2.evaluate_nuscenes_mota(trk2_cat, gt_cat, distance_threshold=distance_threshold)
+
+                matched_pred_ids_trk1_cat = mota_1_cat.events[mota_1_cat.events['Type'] == 'MATCH']['HId'].unique()
+                matched_gt_ids_trk1_cat = mota_1_cat.events[mota_1_cat.events['Type'] == 'MATCH']['OId'].unique()
+                matched_pred_trk1 += self.get_matched_objects(matched_pred_ids_trk1_cat, trk1_cat)
+                matched_gt_trk1 += self.get_matched_objects(matched_gt_ids_trk1_cat, gt_cat)
+                
+                matched_pred_ids_trk2_cat = mota_2_cat.events[mota_2_cat.events['Type'] == 'MATCH']['HId'].unique()
+                matched_gt_ids_trk2_cat = mota_2_cat.events[mota_2_cat.events['Type'] == 'MATCH']['OId'].unique()
+                matched_pred_trk2 += self.get_matched_objects(matched_pred_ids_trk2_cat, trk2_cat)
+                matched_gt_trk2 += self.get_matched_objects(matched_gt_ids_trk2_cat, gt_cat)
+                
+                tp_trk1 = len(matched_gt_ids_trk1_cat)
+                fp_trk1 = len([obj for obj in trk1_cat if obj['tracking_id'] not in matched_pred_ids_trk1_cat])
+                fn_trk1 = len([obj for obj in gt_cat if obj['instance_token'] not in matched_gt_ids_trk1_cat])
+
+                tp_trk2 = len(matched_gt_ids_trk2_cat)
+                fp_trk2 = len([obj for obj in trk2_cat if obj['tracking_id'] not in matched_pred_ids_trk2_cat])
+                fn_trk2 = len([obj for obj in gt_cat if obj['instance_token'] not in matched_gt_ids_trk2_cat])
+
+                print(f"Category: {category}")
+                print(f"Tracker 1 - TP: {tp_trk1}, FP: {fp_trk1}, FN: {fn_trk1}")
+                print(f"Tracker 2 - TP: {tp_trk2}, FP: {fp_trk2}, FN: {fn_trk2}")
+
+                # If accumulate is True, add to total data
+                if accumulate:
+                    self.total_data['trk1'] = [x + y for x, y in zip(self.total_data['trk1'], [tp_trk1, fp_trk1, fn_trk1])]
+                    self.total_data['trk2'] = [x + y for x, y in zip(self.total_data['trk2'], [tp_trk2, fp_trk2, fn_trk2])]
+
+                mota_1_cat.reset()
+                mota_2_cat.reset()
+
             print("total trk1 TP, FP, FN:", self.total_data['trk1'])
-            print("trk1 TP, FP, FN:", TP, FP, FN)
-            events = mota_2.events
-            TP = len(events[events['Type'] == 'MATCH'])
-            FP = len(events[events['Type'] == 'FP'])
-            FN = len(events[events['Type'] == 'MISS'])
-            if accumulate:
-                self.total_data['trk2'] += np.array([TP, FP, FN])
             print("total trk2 TP, FP, FN:", self.total_data['trk2'])
-            print("trk2 TP, FP, FN:", TP, FP, FN)
-
-            matched_pred_ids_trk1 = mota_1.events[mota_1.events['Type'] == 'MATCH']['HId'].unique()
-            matched_gt_ids_trk1 = mota_1.events[mota_1.events['Type'] == 'MATCH']['OId'].unique()
-            matched_pred_trk1 = self.get_matched_objects(matched_pred_ids_trk1, trk1)
-            matched_gt_trk1 = self.get_matched_objects(matched_gt_ids_trk1, gt)
-
-            matched_pred_ids_trk2 = mota_2.events[mota_2.events['Type'] == 'MATCH']['HId'].unique()
-            matched_gt_ids_trk2 = mota_2.events[mota_2.events['Type'] == 'MATCH']['OId'].unique()
-            matched_pred_trk2 = self.get_matched_objects(matched_pred_ids_trk2, trk2)
-            matched_gt_trk2 = self.get_matched_objects(matched_gt_ids_trk2, gt)
-
-            mota_1.reset()
-            mota_2.reset()
 
             # self.record_score(trk1, self.score_history['trk1'])
             # self.record_score(trk2, self.score_history['trk2'])
@@ -211,6 +239,9 @@ def main(parser) -> None:
         'draw_vel': True,
         'draw_id': True,
         # 'alpha': 0.7, # slow
+    }
+    cfg["VISUALIZER"]["analyze"] = {
+        'draw_id': True,
     }
     trackViz = TrackVisualizer(
         windowName=winName1,
@@ -276,6 +307,7 @@ def main(parser) -> None:
                 win.grid = not win.grid
         elif key == ord('i'):
             cfg["VISUALIZER"]["trk_res"]["draw_id"] = not cfg["VISUALIZER"]["trk_res"]["draw_id"]
+            cfg["VISUALIZER"]["analyze"]["draw_id"] = not cfg["VISUALIZER"]["analyze"]["draw_id"]
         elif key == 13: # enter
             for win in winList:
                 winName = win.windowName
@@ -327,10 +359,10 @@ def main(parser) -> None:
         trackViz3.draw_det_bboxes(radarTrk, trans, **cfg["VISUALIZER"]["radarTrkBox"])
         analyzeWin1.draw_ego_car(img_src="/data/car1.png")
         analyzeWin1.draw_det_bboxes(gt, trans, **cfg["VISUALIZER"]["groundTruth"])
-        analyzeWin1.drawTP_FP_FN(trk1, gt, eval_trk1[0], eval_trk1[1], trans)
+        analyzeWin1.drawTP_FP_FN(trk1, gt, eval_trk1[0], eval_trk1[1], trans, **cfg["VISUALIZER"]["analyze"])
         analyzeWin2.draw_ego_car(img_src="/data/car1.png")
         analyzeWin2.draw_det_bboxes(gt, trans, **cfg["VISUALIZER"]["groundTruth"])
-        analyzeWin2.drawTP_FP_FN(trk2, gt, eval_trk2[0], eval_trk2[1], trans)
+        analyzeWin2.drawTP_FP_FN(trk2, gt, eval_trk2[0], eval_trk2[1], trans, **cfg["VISUALIZER"]["analyze"])
         analyzeWin1.show()
         analyzeWin2.show()
         trackViz.show()
