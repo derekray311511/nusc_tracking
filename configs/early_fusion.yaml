@@ -6,8 +6,8 @@ DATASET:
     # lidar_det_path: "/data/detection_result.json"
     lidar_pc_path: None
     radar_pc_path: "/data/radar_PC/radar_PC_13Hz_with_vcomp.json"
-    frames_meta_path: "/data/meta_data/frames_meta.json"
-    groundTruth_path: "/data/meta_data/annotations.json"
+    frames_meta_path: "/data/meta_data2/frames_meta.json"
+    groundTruth_path: "/data/meta_data2/annotations.json"
 
 EVALUATE:
     dataroot: "/data/small_data2"
@@ -126,6 +126,7 @@ VISUALIZER:
         BGRcolor: [198, 235, 52]
         draw_vel: True
         draw_id: False
+        legend: True
     groundTruth:
         colorName: False
         colorID: False

@@ -180,12 +180,14 @@ class TrackVisualizer:
         thickness=2,
         colorID=False, 
         colorName=False, 
+        legend=False,
         **kwargs
     ):
         """Param :
 
         nusc_det : list of {'translation': [x, y, z], 'rotation': [w, x, y, z], 'size': [x, y, z], 'velocity': [vx, vy], 'detection_name': s, 'detection_score': s, 'sample_token': t}
         ego_pose : {'translation': [x, y, z], 'rotation': [w, x, y, z], 'timestamp': t, 'token' : t}
+        legend : bool (default: True) - draw detection name on the top left corner (only effective when colorName is True)
 
         """
         if len(nusc_det) == 0:
@@ -208,6 +210,12 @@ class TrackVisualizer:
             det['velocity'] = np.array(det['velocity']) / self.resolution
 
         if colorName:   # Draw boxes by detection_name
+            legends = {}
+            for cat in self.viz_cat:
+                BGRcolor = self.trk_colorMap[cat]
+                legends[cat] = (BGRcolor, f"{cat}: 0")
+            # Sort the detections by 'detection_name' to ensure proper grouping
+            nusc_det = sorted(nusc_det, key=lambda x: x['detection_name'])
             for k, g in itertools.groupby(nusc_det, lambda x: x['detection_name']):
                 g_det = list(g)
                 cat_num = encodeCategory([k], self.viz_cat)[0]
@@ -218,6 +226,16 @@ class TrackVisualizer:
                     self._draw_vel(g_det, BGRcolor, thickness, **kwargs)
                 if draw_id:
                     self._draw_id(g_det, BGRcolor, **kwargs)
+                legends[k] = (BGRcolor, f"{k}: {len(g_det)}")
+            if legend:
+                legend_x = 20
+                legend_y = 20
+                legend_spacing = 40
+                for (color, text) in legends.values():
+                    cv2.rectangle(self.image, (legend_x, legend_y), (legend_x + 30, legend_y + 30), color, thickness)
+                    cv2.putText(self.image, text, (legend_x + 50, legend_y + 30), cv2.FONT_HERSHEY_SIMPLEX, 1.5, color, 2)
+                    legend_y += legend_spacing
+
         elif colorID and ('tracking_id' in nusc_det[0]):
             for det in nusc_det:
                 # BGRcolor = getColorFromID(ID=det['tracking_id'], colorRange=(50, 255))
@@ -228,6 +246,7 @@ class TrackVisualizer:
                     self._draw_vel([det], BGRcolor, thickness, **kwargs)
                 if draw_id:
                     self._draw_id([det], BGRcolor, **kwargs)
+
         else:   # Draw all boxes using same BGRcolor
             corners2d = self.getBoxCorners2d(nusc_det)
             self.draw_bboxes(corners2d, BGRcolor, thickness, **kwargs)
@@ -244,6 +263,7 @@ class TrackVisualizer:
         matched_gts,
         trans: np.ndarray, 
         thickness=2,
+        legend=False,
         **kwargs
         ):
         if len(predictions) == 0 and len(ground_truths) == 0:
@@ -267,20 +287,19 @@ class TrackVisualizer:
                 FP.append(pred)
 
         # draw legend on the top left corner
-        legend_x = 20
-        legend_y = 20
-        legend_spacing = 40
-
-        legends = [
-            (tp_color, f"TP: {len(TP)} True Positive"),
-            (fp_color, f"FP: {len(FP)} False Positive"),
-            (fn_color, f"FN: {len(FN)} False Negative")
-        ]
-
-        for color, text in legends:
-            cv2.rectangle(self.image, (legend_x, legend_y), (legend_x + 30, legend_y + 30), color, thickness)
-            cv2.putText(self.image, text, (legend_x + 50, legend_y + 30), cv2.FONT_HERSHEY_SIMPLEX, 1.5, color, 2)
-            legend_y += legend_spacing
+        if legend:
+            legend_x = 20
+            legend_y = 20
+            legend_spacing = 40
+            legends = [
+                (tp_color, f"TP: {len(TP)} True Positive"),
+                (fp_color, f"FP: {len(FP)} False Positive"),
+                (fn_color, f"FN: {len(FN)} False Negative")
+            ]
+            for color, text in legends:
+                cv2.rectangle(self.image, (legend_x, legend_y), (legend_x + 30, legend_y + 30), color, thickness)
+                cv2.putText(self.image, text, (legend_x + 50, legend_y + 30), cv2.FONT_HERSHEY_SIMPLEX, 1.5, color, 2)
+                legend_y += legend_spacing
 
         self.draw_det_bboxes(TP, trans, BGRcolor=tp_color, thickness=thickness, **kwargs)
         self.draw_det_bboxes(FP, trans, BGRcolor=fp_color, thickness=thickness, **kwargs)

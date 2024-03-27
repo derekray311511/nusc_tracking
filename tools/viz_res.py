@@ -238,10 +238,12 @@ def main(parser) -> None:
         'colorID': False,
         'draw_vel': True,
         'draw_id': True,
+        'legend': True, 
         # 'alpha': 0.7, # slow
     }
     cfg["VISUALIZER"]["analyze"] = {
         'draw_id': True,
+        'legend': True, 
     }
     trackViz = TrackVisualizer(
         windowName=winName1,
@@ -321,6 +323,9 @@ def main(parser) -> None:
             idx = 0
         if idx >= len_frames:
             idx = len_frames - 1
+
+        if idx >= 1000:
+            idx = 999
 
         for win in winList:
             cv2.setTrackbarPos('Frame', win.windowName, idx)
