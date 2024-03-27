@@ -241,15 +241,13 @@ class TrackVisualizer:
         predictions, 
         ground_truths, 
         matched_predictions, 
-        matched_gt,
+        matched_gts,
         trans: np.ndarray, 
         thickness=2,
         **kwargs
         ):
         if len(predictions) == 0 and len(ground_truths) == 0:
             return
-        predictions = deepcopy(predictions)
-        ground_truths = deepcopy(ground_truths)
         # (TP in green, FP in red, FN in blue)
         TP = []
         FP = []
@@ -258,12 +256,12 @@ class TrackVisualizer:
         fp_color = (0, 0, 255)
         fn_color = (255, 0, 0)
         for gt in ground_truths:
-            if gt not in matched_gt:
+            if gt['instance_token'] not in {g['instance_token'] for g in matched_gts}:  # Replace 'instance_token' with the appropriate key
                 FN.append(gt)
-        
+
         # get TP and FP boxes 
         for pred in predictions:
-            if pred in matched_predictions:
+            if pred['tracking_id'] in {p['tracking_id'] for p in matched_predictions}:  # Replace 'tracking_id' with the appropriate key
                 TP.append(pred)
             else:
                 FP.append(pred)
@@ -284,9 +282,9 @@ class TrackVisualizer:
             cv2.putText(self.image, text, (legend_x + 50, legend_y + 30), cv2.FONT_HERSHEY_SIMPLEX, 1.5, color, 2)
             legend_y += legend_spacing
 
-        self.draw_det_bboxes(TP, trans, BGRcolor=tp_color, thickness=thickness)
-        self.draw_det_bboxes(FP, trans, BGRcolor=fp_color, thickness=thickness)
-        self.draw_det_bboxes(FN, trans, BGRcolor=fn_color, thickness=thickness)
+        self.draw_det_bboxes(TP, trans, BGRcolor=tp_color, thickness=thickness, **kwargs)
+        self.draw_det_bboxes(FP, trans, BGRcolor=fp_color, thickness=thickness, **kwargs)
+        self.draw_det_bboxes(FN, trans, BGRcolor=fn_color, thickness=thickness, draw_id=False)
 
     def _draw_vel(self, nusc_det: list, BGRcolor=(255, 255, 255), thickness=1, alpha=1.0, **kwargs):
         if alpha == 1.0:
