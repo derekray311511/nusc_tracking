@@ -45,12 +45,10 @@ class TrackingEvaluation(object):
         mota = self.motaAccumulator
         
         # Abort if there are neither GT nor pred boxes.
-        # print(frame_gt[0].keys())
-        # print(frame_pred[0].keys())
         gt_ids = [gg['instance_token'] for gg in frame_gt]
         pred_ids = [tt['tracking_id'] for tt in frame_pred]
         if len(gt_ids) == 0 and len(pred_ids) == 0:
-            return None, []
+            return self.motaAccumulator, []
 
         if len(frame_gt) == 0 or len(frame_pred) == 0:
             distances = np.ones((0, 0))
