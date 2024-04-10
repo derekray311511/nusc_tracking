@@ -148,6 +148,9 @@ class Fusion(object):
         self.commonSize = {}
         self.commonCat = {}
 
+        # record object scores for frames (dict {id: [score1, score2, ...]})
+        self.scores = {}
+
     # reset id management at the beginning of a new scene *****************************************************
     def reset_id_log(self):
         self.id_log = {'set1': np.zeros(shape=(2, 3)) - 1, 'set2': np.zeros(shape=(2, 3)) - 1}
@@ -155,6 +158,7 @@ class Fusion(object):
         self.frame_id = 0
         self.commonSize = {}
         self.commonCat = {}
+        self.scores = {}
 
     # get median velocities for current scene *****************************************************
     def update_scene_velos(self, predictions, frames, i):
@@ -221,7 +225,6 @@ class Fusion(object):
 
         # initialize joined output
         outputs = []
-        # current_LIDAR_outputIDs = []
         outputs_ids = []
 
         # go through all FIRST MODALITY tracklets
@@ -230,6 +233,7 @@ class Fusion(object):
             tracklet = copy.deepcopy(tracklet1)
 
             # MATCHED TRACKLETS:
+            print(f"id counter: {self.id_counter}")
             if tracklet_id in matched_ids[:, 0]:
                 tracklet2 = tracks2[matched_ids[list(itertools.chain(matched_ids[:, 0] == tracklet_id)).index(True)][1]]
 
@@ -264,6 +268,7 @@ class Fusion(object):
                     self.id_log['set1'] = np.vstack([self.id_log['set1'], [tracklet1['tracking_id'], self.id_counter, self.frame_id]])
                     self.id_log['set2'] = np.vstack([self.id_log['set2'], [tracklet2['tracking_id'], self.id_counter, self.frame_id]])
                     self.id_counter += 1
+                    print(f"New common id: {self.id_counter}")
 
                 # if ct tracking id is unknown, copy the tracking id from cp
                 elif log_flag1 and not log_flag2:
@@ -272,8 +277,19 @@ class Fusion(object):
 
                 # if cp tracking id is unknown, copy the tracking id from ct
                 elif not log_flag1 and log_flag2:
-                    self.id_log['set1'] = np.vstack(
-                        [self.id_log['set1'], [tracklet1['tracking_id'], log_val2[1], log_val2[2]]])
+                    # before using the older Radar common tracking id, check if it is already used by older LiDAR
+                    if self.id_log['set1'][self.id_log['set1'][:, 1] == log_val2[1]].shape[0] > 0:
+                        # if so, create a new common tracking id
+                        print(f"Detect older common id {log_val2[1]}, give new common id: {self.id_counter}")
+                        self.id_log['set1'] = np.vstack([self.id_log['set1'], [tracklet1['tracking_id'], self.id_counter, self.frame_id]])
+                        # update older Radar common id
+                        self.id_log['set2'][self.id_log['set2'][:, 0] == tracklet2['tracking_id']][0][1] = self.id_counter
+                        print(f"Older Radar being updated: {tracklet2['tracking_id']} -> {self.id_counter}")
+                        print(f"match with LiDAR id {tracklet1['tracking_id']}")
+                        self.id_counter += 1
+                    else:
+                        self.id_log['set1'] = np.vstack(
+                            [self.id_log['set1'], [tracklet1['tracking_id'], log_val2[1], log_val2[2]]])
 
                 # if both tracking ids are already known (used before), ...
                 elif log_flag1 and log_flag2:
@@ -293,6 +309,11 @@ class Fusion(object):
                 self.commonCat[tracklet['tracking_id']] = tracklet['detection_name']
 
                 # add current tracklet to the tracklets list
+                if tracklet['tracking_id'] in outputs_ids:
+                    print(f"flag1: {log_flag1}, flag2: {log_flag2}")
+                    print(f"Match Duplicate ID L! {self.id_log['set1'][self.id_log['set1'][:, 1] == tracklet['tracking_id']]}")
+                    print(f"Match Duplicate ID R! {self.id_log['set2'][self.id_log['set2'][:, 1] == tracklet['tracking_id']]}")
+                    print(f"Match trk1, trk2, common: {tracklet1['tracking_id']}, {tracklet2['tracking_id']}, {tracklet['tracking_id']}")
                 outputs_ids.append(tracklet['tracking_id'])
                 outputs.append(tracklet)
 
@@ -318,7 +339,8 @@ class Fusion(object):
                 self.commonCat[tracklet['tracking_id']] = tracklet['detection_name']
 
                 # add current tracklet to the tracklets list
-                # current_LIDAR_outputIDs.append(tracklet['tracking_id'])
+                if tracklet['tracking_id'] in outputs_ids:
+                    print(f"LiDAR Duplicate ID! {self.id_log['set1'][self.id_log['set1'][:, 1] == tracklet['tracking_id']]}")
                 outputs_ids.append(tracklet['tracking_id'])
                 outputs.append(tracklet)
 
@@ -330,7 +352,7 @@ class Fusion(object):
                 tracklet = copy.deepcopy(tracks2[tracklet_id])
 
                 # apply score decay
-                tracklet['detection_score'] = tracklet['detection_score'] - self.decay2
+                # tracklet['detection_score'] = tracklet['detection_score'] - self.decay2
 
                 # if score is too low (below deletion threshold), dump this tracklet
                 if tracklet['detection_score'] < self.del_th:
@@ -343,26 +365,35 @@ class Fusion(object):
 
                 # save the (new) tracking id
                 tracklet['tracking_id'] = self.id_log['set2'][self.id_log['set2'][:, 0] == tracklet['tracking_id']][0][1]
-                
-                # # Don't output this track if LiDAR already output this ID
-                # if tracklet['tracking_id'] in current_LIDAR_outputIDs:
-                #     continue
+
+                # Use avg history score because Radar has no score
+                if tracklet['tracking_id'] in self.scores:
+                    tracklet['detection_score'] = np.mean(self.scores[tracklet['tracking_id']])
 
                 # Get the size in the history frames
                 if tracklet['tracking_id'] in self.commonSize and tracklet['tracking_id'] not in outputs_ids:
                     tracklet['size'] = np.array(self.commonSize[tracklet['tracking_id']])
                     tracklet['detection_name'] = self.commonCat[tracklet['tracking_id']]
+
+                    if tracklet['tracking_id'] in outputs_ids:
+                        print(f"Radar Duplicate ID! {self.id_log['set2'][self.id_log['set2'][:, 1] == tracklet['tracking_id']]}")
                     outputs_ids.append(tracklet['tracking_id'])
-
-                    # preserve = True
-                    # for dist in track_distances:
-                    #     if dist[tracklet_id] < 4.0:
-                    #         preserve = False
-
-                    # if preserve:
-                        # add current tracklet to the tracklets list
                     outputs.append(tracklet)
-                    # else:
-                    #     print("abandoned!")
+
+        # record object scores for frames
+        for output in outputs:
+            if output['tracking_id'] not in self.scores:
+                self.scores[output['tracking_id']] = []
+            self.scores[output['tracking_id']].append(output['detection_score'])
+            
+        # temp = copy.deepcopy(outputs)
+        # for obj in temp:
+        #     obj['tracking_id'] = int(float(obj['tracking_id']))
+        # id_list = [obj['tracking_id'] for obj in temp]
+        # id_list = sorted(id_list)
+        # duplicate_ids = [id for id in id_list if id_list.count(id) > 1]
+        # print("Duplicate IDs:", duplicate_ids)
+        # print(id_list)
+        # print()
 
         return outputs

@@ -355,17 +355,6 @@ def main(parser) -> None:
         v_weight=cfg["FUSION"]["v_weight"],
     )
 
-    # Build Vizualizer
-    if args.viz:
-        trackViz = TrackVisualizer(
-            windowName='Intermediate',
-            **cfg["VISUALIZER"],
-        )
-        trackViz2 = TrackVisualizer(
-            windowName='Fusion result',
-            **cfg["VISUALIZER"],
-        )
-
     # prepare writen output file
     nusc_LiDAR_trk = {
         "results": {},
@@ -390,13 +379,71 @@ def main(parser) -> None:
     gts = dataset.get_groundTruth()
     len_frames = len(frames)
 
+    # Build Vizualizer
+    if args.viz:
+        trackViz = TrackVisualizer(
+            windowName='Intermediate',
+            **cfg["VISUALIZER"],
+        )
+        trackViz2 = TrackVisualizer(
+            windowName='Fusion result',
+            **cfg["VISUALIZER"],
+        )
+        winList = [trackViz, trackViz2]
+        for win in winList:
+            cv2.createTrackbar('Frame', win.windowName, 0, len_frames, lambda x: None)
+            cv2.setTrackbarPos('Frame', win.windowName, 0)
+
     # start tracking *****************************************
     print("Begin Tracking\n")
     start = time.time()
 
-    for i in tqdm(range(len_frames)):
-        # if i < 440:
-        #     continue
+    thrFrames = []
+    testFrames = range(len_frames)
+    # for i in tqdm(range(len_frames)):
+    i = -1
+    while i < len_frames:
+
+        if args.viz:
+
+            if trackViz.play:
+                i += 1
+                key = cv2.waitKey(int(trackViz.duration * 1000))
+            else:
+                key = cv2.waitKey(0)
+
+            if key == 27: # esc
+                cv2.destroyAllWindows()
+                exit(0)
+            elif key == 32: # space
+                trackViz.play = not trackViz.play
+            elif key == 43: # +
+                trackViz.duration *= 2
+                print(f"Viz duration set to {trackViz.duration}")
+            elif key == 45: # -
+                trackViz.duration *= 0.5
+                print(f"Viz duration set to {trackViz.duration}")
+            elif key == ord('i'):
+                cfg["VISUALIZER"]["trkBox"]["draw_id"] = not cfg["VISUALIZER"]["trkBox"]["draw_id"]
+                cfg["VISUALIZER"]["radarTrkBox"]["draw_id"] = not cfg["VISUALIZER"]["radarTrkBox"]["draw_id"]
+                cfg["VISUALIZER"]["fusionBox"]["draw_id"] = not cfg["VISUALIZER"]["fusionBox"]["draw_id"]
+            elif key == ord('g'):
+                trackViz.grid = not trackViz.grid
+                trackViz2.grid = not trackViz2.grid
+            elif key == ord('d'):
+                i += 1
+        else:
+            i += 1
+
+        thrFrames.append(i)
+
+        if i >= len_frames:
+            break
+
+        if args.viz:
+            for win in winList:
+                cv2.setTrackbarPos('Frame', win.windowName, i)
+
         # get frameID (=token)
         token = frames[i]['token']
         timestamp = frames[i]['timestamp']
@@ -531,25 +578,25 @@ def main(parser) -> None:
         # Vizsualize (realtime)
         if args.viz:
 
-            if trackViz.play:
-                key = cv2.waitKey(int(trackViz.duration * 1000))
-            else:
-                key = cv2.waitKey(0)
+            # if trackViz.play:
+            #     key = cv2.waitKey(int(trackViz.duration * 1000))
+            # else:
+            #     key = cv2.waitKey(0)
 
-            if key == 27: # esc
-                cv2.destroyAllWindows()
-                exit(0)
-            elif key == 32: # space
-                trackViz.play = not trackViz.play
-            elif key == 43: # +
-                trackViz.duration *= 2
-                print(f"Viz duration set to {trackViz.duration}")
-            elif key == 45: # -
-                trackViz.duration *= 0.5
-                print(f"Viz duration set to {trackViz.duration}")
-            elif key == ord('g'):
-                trackViz.grid = not trackViz.grid
-                trackViz2.grid = not trackViz2.grid
+            # if key == 27: # esc
+            #     cv2.destroyAllWindows()
+            #     exit(0)
+            # elif key == 32: # space
+            #     trackViz.play = not trackViz.play
+            # elif key == 43: # +
+            #     trackViz.duration *= 2
+            #     print(f"Viz duration set to {trackViz.duration}")
+            # elif key == 45: # -
+            #     trackViz.duration *= 0.5
+            #     print(f"Viz duration set to {trackViz.duration}")
+            # elif key == ord('g'):
+            #     trackViz.grid = not trackViz.grid
+            #     trackViz2.grid = not trackViz2.grid
 
             trans = dataset.get_4f_transform(ego_pose, inverse=True)
             viz_start = time.time()
