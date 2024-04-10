@@ -23,7 +23,7 @@ EVALUATE:
     #     car: 50
     #     trailer: 50
     #     truck: 50
-    dist_th_tp: 5.0
+    dist_th_tp: 3.0
     custom_range: 
         bicycle: 100
         motorcycle: 100
@@ -94,6 +94,7 @@ VISUALIZER:
         - 'trailer'
         - 'truck'
         - 'pedestrian'
+        - 'background'
     range_: [200, 200]
     screenSize: [1920, 1080]
     windowSize: [920, 1000]
@@ -114,8 +115,9 @@ VISUALIZER:
         colorID: False
         BGRcolor: [52, 171, 235]
         draw_vel: True
+        draw_id: False
     radarTrkBox:
-        colorName: False
+        colorName: True
         colorID: False
         BGRcolor: [0, 255, 0]
         draw_vel: True
