@@ -278,12 +278,12 @@ class Fusion(object):
                     # before using the older Radar common tracking id, check if it is already used by older LiDAR
                     if self.id_log['set1'][self.id_log['set1'][:, 1] == log_val2[1]].shape[0] > 0:
                         # if so, create a new common tracking id
-                        print(f"Detect older common id {log_val2[1]}, give new common id: {self.id_counter}")
                         self.id_log['set1'] = np.vstack([self.id_log['set1'], [tracklet1['tracking_id'], self.id_counter, self.frame_id]])
                         # update older Radar common id
                         self.id_log['set2'][self.id_log['set2'][:, 0] == tracklet2['tracking_id']][0][1] = self.id_counter
-                        print(f"Older Radar being updated: {tracklet2['tracking_id']} -> {self.id_counter}")
-                        print(f"match with LiDAR id {tracklet1['tracking_id']}")
+                        # print(f"Detect older common id {log_val2[1]}, give new common id: {self.id_counter}")
+                        # print(f"Older Radar being updated: {tracklet2['tracking_id']} -> {self.id_counter}")
+                        # print(f"match with LiDAR id {tracklet1['tracking_id']}")
                         self.id_counter += 1
                     else:
                         self.id_log['set1'] = np.vstack(
