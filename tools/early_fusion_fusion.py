@@ -233,7 +233,6 @@ class Fusion(object):
             tracklet = copy.deepcopy(tracklet1)
 
             # MATCHED TRACKLETS:
-            print(f"id counter: {self.id_counter}")
             if tracklet_id in matched_ids[:, 0]:
                 tracklet2 = tracks2[matched_ids[list(itertools.chain(matched_ids[:, 0] == tracklet_id)).index(True)][1]]
 
@@ -268,7 +267,6 @@ class Fusion(object):
                     self.id_log['set1'] = np.vstack([self.id_log['set1'], [tracklet1['tracking_id'], self.id_counter, self.frame_id]])
                     self.id_log['set2'] = np.vstack([self.id_log['set2'], [tracklet2['tracking_id'], self.id_counter, self.frame_id]])
                     self.id_counter += 1
-                    print(f"New common id: {self.id_counter}")
 
                 # if ct tracking id is unknown, copy the tracking id from cp
                 elif log_flag1 and not log_flag2:
