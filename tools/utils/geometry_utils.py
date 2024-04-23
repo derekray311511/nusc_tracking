@@ -1,6 +1,7 @@
 import numpy as np
 import math
 from nuscenes.utils.geometry_utils import transform_matrix
+from scipy.spatial.transform import Rotation as R
 from pyquaternion import Quaternion
 
 def eucl2D(a, b):
@@ -40,6 +41,23 @@ def pc2world(nusc, pointcloud, ego_pose_token, calib_token, name='LIDAR_TOP', in
             new_trans = np.hstack([new_trans, new_vel[:, :2]])
 
     return new_trans
+
+def det_transform(objects, ego_trans):
+    ret = []
+    for object in objects:
+        trans = np.array(object['translation'])
+        vel = np.array([object['velocity'][0], object['velocity'][1], 0.0])
+        rot = quaternion_rotation_matrix(object['rotation'])
+        trans = np.hstack([rot, trans.reshape(-1, 1)])
+        trans = np.vstack([trans, np.array([0, 0, 0, 1])]).reshape(-1, 4)
+        vel = vel.reshape(-1, 1)
+        new_trans = ego_trans @ trans
+        new_vel = ego_trans[:3, :3] @ vel
+        object['translation'] = new_trans[:3, 3].ravel().tolist()
+        object['rotation'] = q_to_wxyz(R.from_matrix(new_trans[:3, :3]).as_quat())
+        object['velocity'] = new_vel.ravel()[:2]
+        ret.append(object)
+    return ret
 
 def q_to_xyzw(Q):
         '''
