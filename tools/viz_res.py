@@ -35,15 +35,22 @@ from utils.custom_eval import evaluate_nuscenes, TrackingEvaluation
 class res_data:
     def __init__(
         self, 
+        det_path=None,
         trk_path_1=None,
         trk_path_2=None,
         radarSeg_path=None,
         radarTrk_path=None,
     ):
+        self.det = self.load_det(det_path)
         self.trk1 = self.load_trk(trk_path_1)
         self.trk2 = self.load_trk(trk_path_2)
         self.radarSeg = self.load_trk(radarSeg_path)
         self.radarTrk = self.load_trk(radarTrk_path)
+
+    def load_det(self, path):
+        with open(path, 'rb') as f:
+            data = json.load(f)['results']
+        return data
 
     def load_trk(self, path):
         with open(path, 'rb') as f:
@@ -59,6 +66,14 @@ class res_data:
             seg[i][5] = seg_f[i]['segment_id']
             seg[i][6] = seg_f[i]['category']
         return seg
+
+    def get_det_bbox(self, token, threshold=0.0):
+        det = self.det[token]
+        det_bbox = []
+        for obj in det:
+            if obj['detection_score'] > threshold:
+                det_bbox.append(obj)
+        return det_bbox
 
 def setWinPos(screenSize, winList):
     screen_width, screen_height = screenSize  # Replace with your screen resolution
@@ -84,6 +99,7 @@ class TrackEval(object):
         self.trackEval_2 = TrackingEvaluation()
         self.total_data = {'trk1': [0, 0, 0], 'trk2': [0, 0, 0]}
         self.score_history = {'trk1': {}, 'trk2': {}}   # id : score list
+        self.duplicate_num = 0
 
     def record_score(self, trk, score_history):
         for obj in trk:
@@ -122,6 +138,7 @@ class TrackEval(object):
 
             id_list = [obj['tracking_id'] for obj in trk2]
             if len(id_list) != len(set(id_list)):
+                self.duplicate_num += len(id_list) - len(set(id_list))
                 print("Duplicate tracking IDs found in trk2.")
             else:
                 print("No duplicate tracking IDs found in trk2.")
@@ -186,6 +203,7 @@ class TrackEval(object):
 
             print("total trk1 TP, FP, FN:", self.total_data['trk1'])
             print("total trk2 TP, FP, FN:", self.total_data['trk2'])
+            print(f"Duplicate objects number: {self.duplicate_num}")
 
             # self.record_score(trk1, self.score_history['trk1'])
             # self.record_score(trk2, self.score_history['trk2'])
@@ -220,11 +238,12 @@ def main(parser) -> None:
     if args.version is not None:
         version = args.version
     else:
-        version = "2024-03-22-14:15:10_fuseAllCat_multiRadarIDFix_avgScore"
+        version = "2024-04-17-17:24:51_avgScore_segDetThr0.0_segDistThr0"
     print(f"Visualizing version: {version}...")
 
     dataset = nusc_dataset(cfg["DATASET"])
     trk_res = res_data(
+        det_path="/data/track_result_bboxth-0.0/detection_result.json",
         trk_path_1=f"/data/early_fusion_track_results/{version}/lidar_tracking_res.json",
         trk_path_2=f"/data/early_fusion_track_results/{version}/tracking_result.json",
         radarSeg_path=f"/data/early_fusion_track_results/{version}/radar_seg_res.json",
@@ -237,14 +256,30 @@ def main(parser) -> None:
         'colorName': True,
         'colorID': False,
         'draw_vel': True,
-        'draw_id': True,
+        'draw_id': False,
+        'draw_name': False,
+        'draw_score': False,
         'legend': True, 
         # 'alpha': 0.7, # slow
     }
     cfg["VISUALIZER"]["analyze"] = {
-        'draw_id': True,
+        'draw_id': False,
+        'draw_name': False,
+        'draw_score': False,
+        'draw_vel': True, 
         'legend': True, 
     }
+    cfg["VISUALIZER"]["detBox"] = {
+        'draw': False, 
+        'draw_id': False,
+        'draw_name': False,
+        'draw_score': False,
+        'legend': False,
+        **cfg["VISUALIZER"]["detBox"],
+    }
+    cfg["VISUALIZER"]["radarTrkBox"]["draw_id"] = cfg["VISUALIZER"]["trk_res"]["draw_id"]
+    cfg["VISUALIZER"]["radarTrkBox"]["draw_name"] = cfg["VISUALIZER"]["trk_res"]["draw_name"]
+    cfg["VISUALIZER"]["radarTrkBox"]["draw_score"] = cfg["VISUALIZER"]["trk_res"]["draw_score"]
     trackViz = TrackVisualizer(
         windowName=winName1,
         **cfg["VISUALIZER"],
@@ -310,6 +345,21 @@ def main(parser) -> None:
         elif key == ord('i'):
             cfg["VISUALIZER"]["trk_res"]["draw_id"] = not cfg["VISUALIZER"]["trk_res"]["draw_id"]
             cfg["VISUALIZER"]["analyze"]["draw_id"] = not cfg["VISUALIZER"]["analyze"]["draw_id"]
+            cfg["VISUALIZER"]["radarTrkBox"]["draw_id"] = not cfg["VISUALIZER"]["radarTrkBox"]["draw_id"]
+        elif key == ord('c'):
+            cfg["VISUALIZER"]["groundTruth"]["colorName"] = not cfg["VISUALIZER"]["groundTruth"]["colorName"]
+        elif key == ord('n'):
+            cfg["VISUALIZER"]["trk_res"]["draw_name"] = not cfg["VISUALIZER"]["trk_res"]["draw_name"]
+            cfg["VISUALIZER"]["analyze"]["draw_name"] = not cfg["VISUALIZER"]["analyze"]["draw_name"]
+            cfg["VISUALIZER"]["radarTrkBox"]["draw_name"] = not cfg["VISUALIZER"]["radarTrkBox"]["draw_name"]
+            cfg["VISUALIZER"]["detBox"]["draw_name"] = cfg["VISUALIZER"]["trk_res"]["draw_name"]
+        elif key == ord('s'):
+            cfg["VISUALIZER"]["trk_res"]["draw_score"] = not cfg["VISUALIZER"]["trk_res"]["draw_score"]
+            cfg["VISUALIZER"]["analyze"]["draw_score"] = not cfg["VISUALIZER"]["analyze"]["draw_score"]
+            cfg["VISUALIZER"]["radarTrkBox"]["draw_score"] = not cfg["VISUALIZER"]["radarTrkBox"]["draw_score"]
+            cfg["VISUALIZER"]["detBox"]["draw_score"] = cfg["VISUALIZER"]["trk_res"]["draw_score"]
+        elif key == ord('1'):
+            cfg["VISUALIZER"]["detBox"]["draw"] = not cfg["VISUALIZER"]["detBox"]["draw"]
         elif key == 13: # enter
             for win in winList:
                 winName = win.windowName
@@ -324,15 +374,13 @@ def main(parser) -> None:
         if idx >= len_frames:
             idx = len_frames - 1
 
-        if idx >= 1000:
-            idx = 999
-
         for win in winList:
             cv2.setTrackbarPos('Frame', win.windowName, idx)
 
         token = frames[idx]['token']
         timestamp = frames[idx]['timestamp']
         ego_pose = frames[idx]['ego_pose']
+        det = trk_res.get_det_bbox(token, threshold=cfg["VISUALIZER"]["detBox"]["score_th"])
         trk1 = trk_res.trk1[token]
         trk2 = trk_res.trk2[token]
         radarSeg = trk_res.load_radarSeg(token)
@@ -362,17 +410,17 @@ def main(parser) -> None:
         trackViz3.draw_ego_car(img_src="/data/car1.png")
         trackViz3.draw_radar_seg(radarSeg, trans, **cfg["VISUALIZER"]["radarSeg"])
         trackViz3.draw_det_bboxes(radarTrk, trans, **cfg["VISUALIZER"]["radarTrkBox"])
+        trackViz3.draw_det_bboxes(gt, trans, **cfg["VISUALIZER"]["groundTruth"])
         analyzeWin1.draw_ego_car(img_src="/data/car1.png")
         analyzeWin1.draw_det_bboxes(gt, trans, **cfg["VISUALIZER"]["groundTruth"])
         analyzeWin1.drawTP_FP_FN(trk1, gt, eval_trk1[0], eval_trk1[1], trans, **cfg["VISUALIZER"]["analyze"])
         analyzeWin2.draw_ego_car(img_src="/data/car1.png")
         analyzeWin2.draw_det_bboxes(gt, trans, **cfg["VISUALIZER"]["groundTruth"])
         analyzeWin2.drawTP_FP_FN(trk2, gt, eval_trk2[0], eval_trk2[1], trans, **cfg["VISUALIZER"]["analyze"])
-        analyzeWin1.show()
-        analyzeWin2.show()
-        trackViz.show()
-        trackViz2.show()
-        trackViz3.show()
+        for win in winList:
+            if cfg["VISUALIZER"]["detBox"]["draw"]:
+                win.draw_det_bboxes(det, trans, **cfg["VISUALIZER"]["detBox"])
+            win.show()
         viz_end = time.time()
         if args.show_delay:
             print(f"viz delay:{(viz_end - viz_start) / 1e-3: .2f} ms")

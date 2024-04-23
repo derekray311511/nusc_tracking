@@ -47,6 +47,8 @@ SEGMENTOR:
         - 'trailer'
         - 'truck'
         # - 'pedestrian'
+    detection_th: 0.0
+    dist_th: 0.0
     expand_ratio: [1.2, 1.2]    # w, l
     fuse_velocity: True
     
@@ -107,6 +109,7 @@ VISUALIZER:
         colorName: False
         contours: False
     detBox:
+        score_th: 0.01
         colorName: False
         BGRcolor: [255, 150, 150]
         draw_vel: True
