@@ -208,24 +208,44 @@ class RadarSegmentor:
         self.id_count = 0
         self.radarSegmentation = None
 
-    def filterDetByCat(self, det):
+    def _filterDet(self, det, thr=0.0):
         filtered_det = []
         for obj in det:
-            if obj['detection_name'] in self.categories:
+            if obj['detection_name'] in self.categories and obj['detection_score'] >= thr:
                 filtered_det.append(obj)
         return filtered_det
 
-    def run(self, radarTargets, lidarDet):
+    def _filterDetByDist(self, det, ego_pose, dist_th=0.0):
+        # dist_th == 0 means no filtering
+        if dist_th == 0 or ego_pose is None:
+            return det
+
+        filtered_det = []
+        trans = transform_matrix(ego_pose['translation'], Quaternion(ego_pose['rotation']), inverse=True)
+        inv_trans = transform_matrix(ego_pose['translation'], Quaternion(ego_pose['rotation']), inverse=False)
+        det = det_transform(det, trans) # world to local coordinates
+        for obj in det:
+            # if np.linalg.norm(obj['translation'][:2]) <= dist_th: # circle range
+            #     filtered_det.append(obj)
+            if abs(obj['translation'][0]) <= dist_th and abs(obj['translation'][1]) <= dist_th: # square range
+                filtered_det.append(obj)
+        filtered_det = det_transform(filtered_det, inv_trans) # local back to world coordinates
+
+        return filtered_det
+
+    def run(self, radarTargets, lidarDet, score_thr=0.0, dist_th=0.0, ego_pose=None):
         """ (Global pose)
-        Returns radar targets with id: list of [x, y, z, vx, vy, id, cat_num]
+        Returns radar targets with id: list of [x, y, z, vx, vy, id, cat_num, score]
 
         radarTargets: list of [x, y, z, vx, vy]
         lidarDet: nusc_det : list of {'translation': [x, y, z], 'rotation': [w, x, y, z], 'size': [x, y, z], 'velocity': [vx, vy], 'detection_name': s, 'detection_score': s, 'sample_token': t}
         """
         radarSegmentation = []
 
-        # Filter LiDAR detection by name
-        lidarDet = self.filterDetByCat(lidarDet)
+        # Filter LiDAR detection by name, score and distance
+        lidarDet = deepcopy(lidarDet)
+        lidarDet = self._filterDet(lidarDet, score_thr)
+        lidarDet = self._filterDetByDist(lidarDet, ego_pose, dist_th)
 
         # Sort the bboxes by detection scores
         lidarDet.sort(reverse=True, key=lambda box:box['detection_score'])
@@ -239,6 +259,7 @@ class RadarSegmentor:
 
         # Set init id and cat
         radarTargets = np.hstack([radarTargets, -np.ones((len(radarTargets), 2))])
+        radarTargets = np.hstack([radarTargets, 0.5*np.ones((len(radarTargets), 1))])
 
         # Segment radar targets
         for det in lidarDet:
@@ -260,6 +281,9 @@ class RadarSegmentor:
 
             # Give radar targets category name
             radarTargets[temp_idxs, 6] = cat_num
+
+            # Give radar targets detection score
+            radarTargets[temp_idxs, 7] = det['detection_score']
 
             # Use LiDAR detection velocity
             if self.fuse_vel:
@@ -400,12 +424,12 @@ def main(parser) -> None:
 
     thrFrames = []
     testFrames = range(len_frames)
+    pbar = tqdm(total=len_frames)
     # for i in tqdm(range(len_frames)):
     i = -1
     while i < len_frames:
 
         if args.viz:
-
             if trackViz.play:
                 i += 1
                 key = cv2.waitKey(int(trackViz.duration * 1000))
@@ -482,7 +506,14 @@ def main(parser) -> None:
         for obj in det_for_viz:
             obj['size'][0], obj['size'][1] = expand_ratio[0] * obj['size'][0], expand_ratio[1] * obj['size'][1]
 
-        segResult, segDelay = cal_func_time(radarSeg.run, radarTargets=radar_pc, lidarDet=det)
+        segResult, segDelay = cal_func_time(
+            radarSeg.run, 
+            radarTargets=radar_pc, 
+            lidarDet=det, 
+            score_thr=cfg["SEGMENTOR"]["detection_th"], 
+            dist_th=cfg["SEGMENTOR"]["dist_th"],
+            ego_pose=ego_pose,
+        )
         radarSeg.reset()
         segResultList = []
         for point in segResult:
@@ -616,6 +647,10 @@ def main(parser) -> None:
             if args.show_delay:
                 print(f"nms delay: {nmsDelay / 1e-3: .2f} ms")
                 print(f"viz delay:{(viz_end - viz_start) / 1e-3: .2f} ms")
+
+        pbar.update(1)
+
+    pbar.close()
 
     # Close vizualization
     cv2.destroyAllWindows()
