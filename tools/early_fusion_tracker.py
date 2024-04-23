@@ -63,7 +63,15 @@ def comparing_positions(self, positions1_data, positions2_data, positions1, posi
         dist = np.sqrt(dist)  # absolute distance in meter
         # invalid = ((dist > max_diff.reshape(N, 1)) + (
         #         positions2_cat.reshape(N, 1) != positions1_cat.reshape(1, M))) > 0
+
+        # # Filter by category but allow background to match with anything
+        # invalid_cat = (positions2_cat.reshape(N, 1) != positions1_cat.reshape(1, M)) > 0
+        # invalid_cat = np.logical_and(invalid_cat, positions2_cat.reshape(N, 1) != len(NUSCENES_TRACKING_NAMES) - 1)
+        # invalid_dist = (dist > max_diff.reshape(N, 1)) > 0
+        # invalid = np.logical_or(invalid_cat, invalid_dist)
+
         invalid = dist > max_diff.reshape(N, 1) # Don't filter by category
+        
         dist = dist + invalid * 1e18
         if self.hungarian:
             dist[dist > 1e18] = 1e18
@@ -259,7 +267,8 @@ class PubTracker(object):
                 cat_name = decodeCategory([cat_num], self.tracking_names)[0]
                 translation = np.mean(np.array(g)[:, :3], axis=0)
                 velocity = np.mean(np.array(g)[:, 3:5], axis=0)
-                obj = self._formatObj(translation, velocity, cat_name, score=0.5)   # Hardcore score currently
+                score = np.mean(np.array(g)[:, 7], axis=0)
+                obj = self._formatObj(translation, velocity, cat_name, score)   # Hardcore score currently
                 ret.append(obj)
         return ret
 
