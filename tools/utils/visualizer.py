@@ -176,6 +176,8 @@ class TrackVisualizer:
         trans: np.ndarray, 
         draw_vel: bool = False,
         draw_id: bool = False,
+        draw_name: bool = False,
+        draw_score: bool = False,
         BGRcolor=(255, 150, 150), 
         thickness=2,
         colorID=False, 
@@ -194,9 +196,12 @@ class TrackVisualizer:
             return
         nusc_det = deepcopy(nusc_det)
         nusc_det = self.world2ego(nusc_det, trans)
-        if 'detection_name' not in nusc_det[0]:
+        if 'detection_name' not in nusc_det[0] and 'tracking_name' in nusc_det[0]:
             for det in nusc_det:
                 det['detection_name'] = det['tracking_name']
+        if 'detection_score' not in nusc_det[0] and 'tracking_score' in nusc_det[0]:
+            for det in nusc_det:
+                det['detection_score'] = det['tracking_score']
         for det in nusc_det:
             # Nusc to image x, y coordinates (Flip y axis)
             det['translation'][:2] *= np.array([1, -1])
@@ -226,6 +231,10 @@ class TrackVisualizer:
                     self._draw_vel(g_det, BGRcolor, thickness, **kwargs)
                 if draw_id:
                     self._draw_id(g_det, BGRcolor, **kwargs)
+                if draw_name:
+                    self._draw_name(g_det, BGRcolor, **kwargs)
+                if draw_score:
+                    self._draw_score(g_det, BGRcolor, **kwargs)
                 legends[k] = (BGRcolor, f"{k}: {len(g_det)}")
             if legend:
                 legend_x = 20
@@ -246,6 +255,10 @@ class TrackVisualizer:
                     self._draw_vel([det], BGRcolor, thickness, **kwargs)
                 if draw_id:
                     self._draw_id([det], BGRcolor, **kwargs)
+                if draw_name:
+                    self._draw_name([det], BGRcolor, **kwargs)
+                if draw_score:
+                    self._draw_score([det], BGRcolor, **kwargs)
 
         else:   # Draw all boxes using same BGRcolor
             corners2d = self.getBoxCorners2d(nusc_det)
@@ -254,6 +267,10 @@ class TrackVisualizer:
                 self._draw_vel(nusc_det, BGRcolor, thickness, **kwargs)
             if draw_id:
                 self._draw_id(nusc_det, BGRcolor, **kwargs)
+            if draw_name:
+                self._draw_name(nusc_det, BGRcolor, **kwargs)
+            if draw_score:
+                self._draw_score(nusc_det, BGRcolor, **kwargs)
 
     def drawTP_FP_FN(
         self, 
@@ -333,7 +350,43 @@ class TrackVisualizer:
             org = det['translation'][:2]
             org = np.round(org).astype(int)
             ID = int(float(det['tracking_id']))
+            text_size, _ = cv2.getTextSize(str(ID), font, fontScale, thickness)
+            org = (org[0], org[1] - text_size[1] // 2)
             image = cv2.putText(image, str(ID), org, font, fontScale, BGRcolor, thickness, cv2.LINE_AA)
+        if alpha != 1.0:
+            self.image = cv2.addWeighted(self.image, 1, image, alpha, 0)
+
+    def _draw_name(self, nusc_det: list, BGRcolor=(255, 255, 255), fontScale=0.8, thickness=1, alpha=1.0, **kwargs):
+        if alpha == 1.0:
+            image = self.image
+        else:
+            image = np.zeros_like(self.image)
+        font = cv2.FONT_HERSHEY_SIMPLEX
+        fontScale = fontScale
+        for det in nusc_det:
+            org = det['translation'][:2]
+            org = np.round(org).astype(int)
+            name = det['detection_name'][:3]
+            text_size, _ = cv2.getTextSize(name, font, fontScale, thickness)
+            org = (org[0] - text_size[0] // 2, org[1] - text_size[1])
+            image = cv2.putText(image, name, org, font, fontScale, BGRcolor, thickness, cv2.LINE_AA)
+        if alpha != 1.0:
+            self.image = cv2.addWeighted(self.image, 1, image, alpha, 0)
+
+    def _draw_score(self, nusc_det: list, BGRcolor=(255, 255, 255), fontScale=0.8, thickness=1, alpha=1.0, **kwargs):
+        if alpha == 1.0:
+            image = self.image
+        else:
+            image = np.zeros_like(self.image)
+        font = cv2.FONT_HERSHEY_SIMPLEX
+        fontScale = fontScale
+        for det in nusc_det:
+            org = det['translation'][:2]
+            org = np.round(org).astype(int)
+            score = np.round(det['detection_score'], 2).astype(np.float16)
+            text_size, _ = cv2.getTextSize(str(score), font, fontScale, thickness)
+            org = (org[0], org[1] + text_size[1])
+            image = cv2.putText(image, str(score), org, font, fontScale, BGRcolor, thickness, cv2.LINE_AA)
         if alpha != 1.0:
             self.image = cv2.addWeighted(self.image, 1, image, alpha, 0)
 
