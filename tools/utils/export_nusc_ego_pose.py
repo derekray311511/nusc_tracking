@@ -3,6 +3,7 @@ import json
 import os
 import time
 import copy
+import numpy as np
 
 from tqdm import tqdm
 from nuscenes import NuScenes
@@ -20,8 +21,8 @@ NUSCENES_TRACKING_NAMES = [
 
 def get_parser():
     parser = argparse.ArgumentParser(description="Prepare for tracking")
-    parser.add_argument("--work_dir", type=str, default="data/meta_data", help="the dir to save meta data")
-    parser.add_argument("--dataroot", type=str, default="data/nuscenes")
+    parser.add_argument("--work_dir", type=str, default="data/meta_data(gt_w_vel)", help="the dir to save meta data")
+    parser.add_argument("--dataroot", type=str, default="data/small_data2")
     parser.add_argument("--version", type=str, default='v1.0-trainval')
     return parser
 
@@ -31,6 +32,13 @@ def name_extraction(names_list, name_to_extract):
         if p != -1:
             np = p + len(name)
             return name_to_extract[p:np]
+
+def calculate_velocity(current_pose, prev_pose, current_time, prev_time):
+    if prev_time == current_time:
+        return [0, 0, 0]
+    delta_time = current_time - prev_time
+    velocity = (np.array(current_pose) - np.array(prev_pose)) / delta_time
+    return velocity.tolist()
 
 def save_first_frame(parser):
 
@@ -44,8 +52,8 @@ def save_first_frame(parser):
         raise ValueError("unknown")
 
     frames = []
-    # added
     annotations = []
+    object_velocities = {}
     for sample in tqdm(nusc.sample):
         scene_name = nusc.get("scene", sample['scene_token'])['name']
         if scene_name not in scenes:
@@ -75,6 +83,24 @@ def save_first_frame(parser):
 
             if current['detection_name'] in NUSCENES_TRACKING_NAMES:
                 current['label_preds'] = int(NUSCENES_TRACKING_NAMES.index(current['detection_name']))
+                ann_token = current['instance_token']
+
+                if ann_token in object_velocities:
+                    prev_velocity_data = object_velocities[ann_token]
+                    velocity = calculate_velocity(
+                        current['translation'], 
+                        prev_velocity_data['translation'], 
+                        timestamp, 
+                        prev_velocity_data['timestamp']
+                    )
+                else:
+                    velocity = [0, 0, 0]
+                
+                current['velocity'] = velocity
+                object_velocities[ann_token] = {
+                    'translation': current['translation'],
+                    'timestamp': timestamp
+                }
                 sample['anns'][sample['anns'].index(annotation)] = current
             else:
                 sample['anns'].remove(annotation)
