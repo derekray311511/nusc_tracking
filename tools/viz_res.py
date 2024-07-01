@@ -201,6 +201,39 @@ class TrackEval(object):
                 mota_1_cat.reset()
                 mota_2_cat.reset()
 
+            # # Calculate TP, FP, FN for the current category
+            # mota_1, _ = self.trackEval_1.evaluate_nuscenes_mota(trk1, gt, distance_threshold=distance_threshold)
+            # mota_2, _ = self.trackEval_2.evaluate_nuscenes_mota(trk2, gt, distance_threshold=distance_threshold)
+
+            # matched_pred_ids_trk1 = mota_1.events[mota_1.events['Type'] == 'MATCH']['HId'].unique()
+            # matched_gt_ids_trk1 = mota_1.events[mota_1.events['Type'] == 'MATCH']['OId'].unique()
+            # matched_pred_trk1 += self.get_matched_objects(matched_pred_ids_trk1, trk1)
+            # matched_gt_trk1 += self.get_matched_objects(matched_gt_ids_trk1, gt)
+            
+            # matched_pred_ids_trk2 = mota_2.events[mota_2.events['Type'] == 'MATCH']['HId'].unique()
+            # matched_gt_ids_trk2 = mota_2.events[mota_2.events['Type'] == 'MATCH']['OId'].unique()
+            # matched_pred_trk2 += self.get_matched_objects(matched_pred_ids_trk2, trk2)
+            # matched_gt_trk2 += self.get_matched_objects(matched_gt_ids_trk2, gt)
+            
+            # tp_trk1 = len(matched_gt_ids_trk1)
+            # fp_trk1 = len([obj for obj in trk1 if obj['tracking_id'] not in matched_pred_ids_trk1])
+            # fn_trk1 = len([obj for obj in gt if obj['instance_token'] not in matched_gt_ids_trk1])
+
+            # tp_trk2 = len(matched_gt_ids_trk2)
+            # fp_trk2 = len([obj for obj in trk2 if obj['tracking_id'] not in matched_pred_ids_trk2])
+            # fn_trk2 = len([obj for obj in gt if obj['instance_token'] not in matched_gt_ids_trk2])
+
+            # print(f"Tracker 1 - TP: {tp_trk1}, FP: {fp_trk1}, FN: {fn_trk1}")
+            # print(f"Tracker 2 - TP: {tp_trk2}, FP: {fp_trk2}, FN: {fn_trk2}")
+
+            # # If accumulate is True, add to total data
+            # if accumulate:
+            #     self.total_data['trk1'] = [x + y for x, y in zip(self.total_data['trk1'], [tp_trk1, fp_trk1, fn_trk1])]
+            #     self.total_data['trk2'] = [x + y for x, y in zip(self.total_data['trk2'], [tp_trk2, fp_trk2, fn_trk2])]
+
+            # mota_1.reset()
+            # mota_2.reset()
+
             print("total trk1 TP, FP, FN:", self.total_data['trk1'])
             print("total trk2 TP, FP, FN:", self.total_data['trk2'])
             print(f"Duplicate objects number: {self.duplicate_num}")
@@ -238,7 +271,7 @@ def main(parser) -> None:
     if args.version is not None:
         version = args.version
     else:
-        version = "2024-04-17-17:24:51_avgScore_segDetThr0.0_segDistThr0"
+        version = "2024-05-30-15:34:18_noFusePedTruck(Good)"
     print(f"Visualizing version: {version}...")
 
     dataset = nusc_dataset(cfg["DATASET"])
@@ -259,6 +292,7 @@ def main(parser) -> None:
         'draw_id': False,
         'draw_name': False,
         'draw_score': False,
+        'draw_hist': False, # Could cause slow visualization
         'legend': True, 
         # 'alpha': 0.7, # slow
     }
@@ -288,10 +322,10 @@ def main(parser) -> None:
         windowName=winName2,
         **cfg["VISUALIZER"],
     )
-    trackViz3 = TrackVisualizer(
-        windowName='radarTrk',
-        **cfg["VISUALIZER"],
-    )
+    # trackViz3 = TrackVisualizer(
+    #     windowName='radarTrk',
+    #     **cfg["VISUALIZER"],
+    # )
     analyzeWin1 = TrackVisualizer(
         windowName='analyzeTrk1',
         **cfg["VISUALIZER"],
@@ -300,7 +334,7 @@ def main(parser) -> None:
         windowName='analyzeTrk2',
         **cfg["VISUALIZER"],
     )
-    winList = [trackViz, trackViz2, trackViz3, analyzeWin1, analyzeWin2]
+    winList = [trackViz, trackViz2, analyzeWin1, analyzeWin2]
     setWinPos(cfg["VISUALIZER"]["screenSize"], winList)
 
     frames = dataset.get_frames_meta()
@@ -310,6 +344,7 @@ def main(parser) -> None:
         for obj in gt['anns']:
             obj['velocity'] = np.array([0.0, 0.0])
     len_frames = len(frames)
+    current_first_frame_idx = 0
     max_idx = len_frames - 1
     idx = -1
     for win in winList:
@@ -360,6 +395,8 @@ def main(parser) -> None:
             cfg["VISUALIZER"]["detBox"]["draw_score"] = cfg["VISUALIZER"]["trk_res"]["draw_score"]
         elif key == ord('1'):
             cfg["VISUALIZER"]["detBox"]["draw"] = not cfg["VISUALIZER"]["detBox"]["draw"]
+        elif key == ord('h'):
+            cfg["VISUALIZER"]["trk_res"]["draw_hist"] = not cfg["VISUALIZER"]["trk_res"]["draw_hist"]
         elif key == 13: # enter
             for win in winList:
                 winName = win.windowName
@@ -371,8 +408,11 @@ def main(parser) -> None:
 
         if idx < 0:
             idx = 0
-        if idx >= len_frames:
-            idx = len_frames - 1
+        # if idx >= 1000:
+        #     idx = 1000 - 1
+
+        if frames[idx]['first']:
+            current_first_frame_idx = idx
 
         for win in winList:
             cv2.setTrackbarPos('Frame', win.windowName, idx)
@@ -399,6 +439,15 @@ def main(parser) -> None:
 
         trans = dataset.get_4f_transform(ego_pose, inverse=True)
         viz_start = time.time()
+        if cfg["VISUALIZER"]["trk_res"]["draw_hist"]:
+            hist_num = 4
+            for i in reversed(range(hist_num)):
+                if idx - i - 1 == current_first_frame_idx:
+                    continue
+                token = frames[idx - i - 1]['token']
+                alpha = 1.0 - 0.9 * (i + 1) / 5
+                trackViz.draw_det_bboxes(trk_res.trk1[token], trans, **cfg["VISUALIZER"]["trk_res"], alpha=alpha)
+                trackViz2.draw_det_bboxes(trk_res.trk2[token], trans, **cfg["VISUALIZER"]["trk_res"], alpha=alpha)
         trackViz.draw_ego_car(img_src="/data/car1.png")
         trackViz.draw_det_bboxes(trk1, trans, **cfg["VISUALIZER"]["trk_res"])
         trackViz.draw_det_bboxes(gt, trans, **cfg["VISUALIZER"]["groundTruth"])
@@ -407,10 +456,10 @@ def main(parser) -> None:
         trackViz2.draw_det_bboxes(trk2, trans, **cfg["VISUALIZER"]["trk_res"])
         trackViz2.draw_det_bboxes(gt, trans, **cfg["VISUALIZER"]["groundTruth"])
         trackViz2.draw_radar_seg(radarSeg, trans, **cfg["VISUALIZER"]["radarSeg"])
-        trackViz3.draw_ego_car(img_src="/data/car1.png")
-        trackViz3.draw_radar_seg(radarSeg, trans, **cfg["VISUALIZER"]["radarSeg"])
-        trackViz3.draw_det_bboxes(radarTrk, trans, **cfg["VISUALIZER"]["radarTrkBox"])
-        trackViz3.draw_det_bboxes(gt, trans, **cfg["VISUALIZER"]["groundTruth"])
+        # trackViz3.draw_ego_car(img_src="/data/car1.png")
+        # trackViz3.draw_radar_seg(radarSeg, trans, **cfg["VISUALIZER"]["radarSeg"])
+        # trackViz3.draw_det_bboxes(radarTrk, trans, **cfg["VISUALIZER"]["radarTrkBox"])
+        # trackViz3.draw_det_bboxes(gt, trans, **cfg["VISUALIZER"]["groundTruth"])
         analyzeWin1.draw_ego_car(img_src="/data/car1.png")
         analyzeWin1.draw_det_bboxes(gt, trans, **cfg["VISUALIZER"]["groundTruth"])
         analyzeWin1.drawTP_FP_FN(trk1, gt, eval_trk1[0], eval_trk1[1], trans, **cfg["VISUALIZER"]["analyze"])
@@ -421,6 +470,7 @@ def main(parser) -> None:
             if cfg["VISUALIZER"]["detBox"]["draw"]:
                 win.draw_det_bboxes(det, trans, **cfg["VISUALIZER"]["detBox"])
             win.show()
+
         viz_end = time.time()
         if args.show_delay:
             print(f"viz delay:{(viz_end - viz_start) / 1e-3: .2f} ms")
