@@ -4,6 +4,7 @@
 - Change this function: create_tracks
 
 ```python
+import json
 def create_tracks(all_boxes: EvalBoxes, nusc: NuScenes, eval_split: str, gt: bool) \
         -> Dict[str, Dict[int, List[TrackingBox]]]:
     """
@@ -15,23 +16,19 @@ def create_tracks(all_boxes: EvalBoxes, nusc: NuScenes, eval_split: str, gt: boo
     :param gt: Whether we are creating tracks for GT or predictions
     :return: The tracks.
     """
-    # Load custom eval sample tokens
-    import json
+    # Custom eval tokens
+    frames_path = "/data/meta_data2/frames_meta.json"
+    with open(frames_path, 'rb') as f:
+        frames = json.load(f)['frames']
     custom_tokens = []
-    use_radar_update_frame = False
-    if use_radar_update_frame:
-        path = "/data/track_results/BEVFusion-KF(R)-mul-2-exp-nms_0.5-verror*1-bus-update_radar_match_score/radar_update_frames.json"
-        with open(path, mode='rb') as f:
-            data = json.load(f)
-        
-        for k, v in data.items():
-            if int(k) > 997: continue
-            custom_tokens.append(v)
+    use_custom = True
+    if use_custom:
+        for idx in range(1000):
+            custom_tokens.append(frames[idx]['token'])
     else:
-        for i, token in enumerate(all_boxes.sample_tokens):
-            if int(i) > 997: continue
-            custom_tokens.append(token)
-    print(f"evaluate on {len(custom_tokens)} frames")
+        for sample_token in all_boxes.sample_tokens:
+            custom_tokens.append(sample_token)
+    print(f"Evaluation using {len(custom_tokens)} frames.")
 
     # Only keep samples from this split.
     splits = create_splits_scenes()
