@@ -5,6 +5,7 @@ import time
 import os, sys
 import pytz
 import json
+import numpy as np
 
 def cal_func_time(func, **kargs):
     start = time.time()
@@ -32,6 +33,16 @@ def log_parser_args(out_dir, args):
         json.dump(info, f, indent=2)
     f.close()
     print(f"Log file is saved to {log_path}")
+
+class npEncoder(json.JSONEncoder):
+    def default(self, obj):
+        if isinstance(obj, np.integer):
+            return int(obj)
+        if isinstance(obj, np.floating):
+            return float(obj)
+        if isinstance(obj, np.ndarray):
+            return obj.tolist()
+        return super(NpEncoder, self).default(obj)
 
 class Object():
     def __init__(self, center, velocity):
