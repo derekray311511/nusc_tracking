@@ -177,6 +177,23 @@ class nusc_dataset:
         print("Done.")
         return ret_dict
 
+    def add_key_frames_info(self, frames):
+        first_frame_token = None
+        first_frame_idx = None
+        print("Adding key frame info...")
+        for idx in tqdm(range(len(frames))):
+            frame = frames[idx]
+            token = frame['token']
+            if frame['first']:
+                first_frame_token = token
+                first_frame_idx = idx
+            frame.update({
+                'first_frame_token': first_frame_token,
+                'first_frame_idx': first_frame_idx,
+            })
+        print("Done.")
+        return frames
+
 class nusc_data:
     def __init__(
         self, 
