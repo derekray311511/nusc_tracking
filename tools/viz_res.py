@@ -19,7 +19,7 @@ from pyquaternion import Quaternion
 from tqdm import tqdm
 from copy import deepcopy
 from utils.utils import log_parser_args, mkdir_or_exist, cal_func_time, get_current_datetime
-from utils.utils import encodeCategory, decodeCategory
+from utils.utils import encodeCategory, decodeCategory, npEncoder
 from utils.box_utils import get_3d_box_8corner, get_3d_box_2corner
 from utils.box_utils import nms, is_points_inside_obb
 from utils.geometry_utils import *
@@ -94,12 +94,51 @@ def setWinPos(screenSize, winList):
             cv2.moveWindow(win.windowName, window_width - int(w/2), (i-2) * h)
 
 class TrackEval(object):
-    def __init__(self):
+    def __init__(self, trackViz=None):
+        self.trackViz = trackViz
         self.trackEval_1 = TrackingEvaluation()
         self.trackEval_2 = TrackingEvaluation()
-        self.total_data = {'trk1': [0, 0, 0], 'trk2': [0, 0, 0]}
+        self.eval_categories = ['pedestrian', 'car', 'truck', 'bus', 'trailer', 'motorcycle', 'bicycle']
+        self.total_TPFPFN = {'trk1': [0, 0, 0], 'trk2': [0, 0, 0]}
+        self.prev_matches_1 = {cat: {} for cat in self.eval_categories}
+        self.prev_matches_2 = {cat: {} for cat in self.eval_categories}
         self.score_history = {'trk1': {}, 'trk2': {}}   # id : score list
         self.duplicate_num = 0
+        self.id_switch_count_1 = {cat: 0 for cat in self.eval_categories}
+        self.id_switch_count_2 = {cat: 0 for cat in self.eval_categories}
+        self.IDS_1 = {cat: [] for cat in self.eval_categories}
+        self.IDS_2 = {cat: [] for cat in self.eval_categories}
+
+    # a def that create a json file to store the id switch information
+    def save_IDS_json(self, root_path=None):
+        root = os.path.join(root_path, 'anaylzation')
+        mkdir_or_exist(root)
+        print(f"Saving ID switch information to {root}...")
+        # Calculate total number of ID switches for each category
+        count_1 = {cat: 0 for cat in self.eval_categories}
+        count_2 = {cat: 0 for cat in self.eval_categories}
+        for cat, objs in self.IDS_1.items():
+            count_1[cat] = len(objs)
+        for cat, objs in self.IDS_2.items():
+            count_2[cat] = len(objs)
+        print(f"IDS for LiDAR only(trk1): {json.dumps(count_1, indent=4)}")
+        print(f"IDS for Fusion(trk2): {json.dumps(count_2, indent=4)}")
+        with open(os.path.join(root, 'IDS_1.json'), 'w') as f:
+            json.dump(self.IDS_1, f, indent=4, cls=npEncoder)
+        with open(os.path.join(root, 'IDS_2.json'), 'w') as f:
+            json.dump(self.IDS_2, f, indent=4, cls=npEncoder)
+
+    # Merge IDS_temp into IDS
+    def merge_IDS(self, IDS_1_temp, IDS_2_temp):
+        for cat, obj in IDS_1_temp.items():
+            self.IDS_1[cat] += obj
+        for cat, obj in IDS_2_temp.items():
+            self.IDS_2[cat] += obj
+
+    def firstFrameReset(self):
+        self.prev_matches_1 = {cat: {} for cat in self.eval_categories}
+        self.prev_matches_2 = {cat: {} for cat in self.eval_categories}
+        self.score_history = {'trk1': {}, 'trk2': {}}
 
     def record_score(self, trk, score_history):
         for obj in trk:
@@ -125,7 +164,7 @@ class TrackEval(object):
         else:
             return [obj for obj in objects if obj['instance_token'] in matched_ids]
 
-    def analyze_res(self, trk1=None, trk2=None, gt=None, distance_threshold=2.0, accumulate=True):
+    def analyze_res(self, trk1=None, trk2=None, gt=None, distance_threshold=2.0, accumulate=True, vizInterrupt=False):
         # Show the numbers of targets in each frame with categories
         if trk1 is not None and trk2 is not None:
             trk1_categories = [obj['tracking_name'] for obj in trk1]
@@ -143,9 +182,9 @@ class TrackEval(object):
             else:
                 print("No duplicate tracking IDs found in trk2.")
 
-            print("trk1 len:", len(trk1), ", trk2 len:", len(trk2))
-            print("trk1:", trk1_category_counts)
-            print("trk2:", trk2_category_counts)
+            # print("trk1 len:", len(trk1), ", trk2 len:", len(trk2))
+            # print("trk1:", trk1_category_counts)
+            # print("trk2:", trk2_category_counts)
 
             # Show gt numbers of targets in each frame with categories
             if gt is None:
@@ -155,12 +194,14 @@ class TrackEval(object):
             gt_categories = [obj['detection_name'] for obj in gt]
             gt_category_counts = {category: gt_categories.count(category) for category in set(gt_categories)}
 
-            print("gt:", len(gt))
-            print("gt:", gt_category_counts)
+            # print("gt:", len(gt))
+            # print("gt:", gt_category_counts)
 
             matched_pred_trk1, matched_gt_trk1 = [], []
             matched_pred_trk2, matched_gt_trk2 = [], []
             categories = set(trk1_categories + trk2_categories)
+            IDS_1 = {cat: [] for cat in self.eval_categories}
+            IDS_2 = {cat: [] for cat in self.eval_categories}
             for category in categories:
                 # Filter predictions and ground truths for the current category
                 trk1_cat = [obj for obj in trk1 if obj['tracking_name'] == category]
@@ -189,17 +230,72 @@ class TrackEval(object):
                 fp_trk2 = len([obj for obj in trk2_cat if obj['tracking_id'] not in matched_pred_ids_trk2_cat])
                 fn_trk2 = len([obj for obj in gt_cat if obj['instance_token'] not in matched_gt_ids_trk2_cat])
 
-                print(f"Category: {category}")
-                print(f"Tracker 1 - TP: {tp_trk1}, FP: {fp_trk1}, FN: {fn_trk1}")
-                print(f"Tracker 2 - TP: {tp_trk2}, FP: {fp_trk2}, FN: {fn_trk2}")
+                # print(f"Category: {category}")
+                # print(f"Tracker 1 - TP: {tp_trk1}, FP: {fp_trk1}, FN: {fn_trk1}")
+                # print(f"Tracker 2 - TP: {tp_trk2}, FP: {fp_trk2}, FN: {fn_trk2}")
 
                 # If accumulate is True, add to total data
                 if accumulate:
-                    self.total_data['trk1'] = [x + y for x, y in zip(self.total_data['trk1'], [tp_trk1, fp_trk1, fn_trk1])]
-                    self.total_data['trk2'] = [x + y for x, y in zip(self.total_data['trk2'], [tp_trk2, fp_trk2, fn_trk2])]
+                    self.total_TPFPFN['trk1'] = [x + y for x, y in zip(self.total_TPFPFN['trk1'], [tp_trk1, fp_trk1, fn_trk1])]
+                    self.total_TPFPFN['trk2'] = [x + y for x, y in zip(self.total_TPFPFN['trk2'], [tp_trk2, fp_trk2, fn_trk2])]
+
+                # Calculate the number of id switches
+                if accumulate:
+                    curr_matches_1 = {}
+                    curr_matches_2 = {}
+                    for gt_id, pred_id in zip(matched_gt_ids_trk1_cat, matched_pred_ids_trk1_cat):
+                        curr_matches_1[gt_id] = pred_id
+                    for gt_id, pred_id in zip(matched_gt_ids_trk2_cat, matched_pred_ids_trk2_cat):
+                        curr_matches_2[gt_id] = pred_id
+                    for gt_id, track_id in curr_matches_1.items():
+                        if gt_id in self.prev_matches_1[category]:
+                            if self.prev_matches_1[category][gt_id] != track_id:
+                                self.id_switch_count_1[category] += 1
+                                IDS_1[category].append({
+                                    'gt_id': gt_id, 
+                                    'old_track_id': self.prev_matches_1[category][gt_id], 
+                                    'new_track_id': track_id, 
+                                    'sample_token': gt_cat[0]['sample_token']
+                                })
+                                # Handcrafted visualization interrupt
+                                if vizInterrupt and category == 'car':
+                                    print(f"ID switch for LiDAR only(trk1) - {category} "
+                                        f"gt_id: {gt_id}, "
+                                        f"old_id: {self.prev_matches_1[category][gt_id]}, "
+                                        f"new_id: {track_id}")
+                                    self.trackViz.play = False
+                                    
+                    for gt_id, track_id in curr_matches_2.items():
+                        if gt_id in self.prev_matches_2[category]:
+                            if self.prev_matches_2[category][gt_id] != track_id:
+                                self.id_switch_count_2[category] += 1
+                                IDS_2[category].append({
+                                    'gt_id': gt_id, 
+                                    'old_track_id': self.prev_matches_2[category][gt_id], 
+                                    'new_track_id': track_id, 
+                                    'sample_token': gt_cat[0]['sample_token']
+                                })
+                                # Handcrafted visualization interrupt
+                                if vizInterrupt and category == 'car':
+                                    print(f"ID switch for Fusion(trk2) - {category} "
+                                        f"gt_id: {gt_id}, "
+                                        f"old_id: {self.prev_matches_2[category][gt_id]}, "
+                                        f"new_id: {track_id}")
+                                    self.trackViz.play = False
+                    
+                    self.prev_matches_1[category] = curr_matches_1
+                    self.prev_matches_2[category] = curr_matches_2
 
                 mota_1_cat.reset()
                 mota_2_cat.reset()
+
+            self.merge_IDS(IDS_1, IDS_2)
+            # print("ID switch for LiDAR only(trk1)")
+            # for cat in self.eval_categories:
+            #     print(f"{cat:.>12}: {self.id_switch_count_1[cat]:.>3}")
+            # print("ID switch for Fusion(trk2)")
+            # for cat in self.eval_categories:
+            #     print(f"{cat:.>12}: {self.id_switch_count_2[cat]:.>3}")
 
             # # Calculate TP, FP, FN for the current category
             # mota_1, _ = self.trackEval_1.evaluate_nuscenes_mota(trk1, gt, distance_threshold=distance_threshold)
@@ -228,15 +324,15 @@ class TrackEval(object):
 
             # # If accumulate is True, add to total data
             # if accumulate:
-            #     self.total_data['trk1'] = [x + y for x, y in zip(self.total_data['trk1'], [tp_trk1, fp_trk1, fn_trk1])]
-            #     self.total_data['trk2'] = [x + y for x, y in zip(self.total_data['trk2'], [tp_trk2, fp_trk2, fn_trk2])]
+            #     self.total_TPFPFN['trk1'] = [x + y for x, y in zip(self.total_TPFPFN['trk1'], [tp_trk1, fp_trk1, fn_trk1])]
+            #     self.total_TPFPFN['trk2'] = [x + y for x, y in zip(self.total_TPFPFN['trk2'], [tp_trk2, fp_trk2, fn_trk2])]
 
             # mota_1.reset()
             # mota_2.reset()
 
-            print("total trk1 TP, FP, FN:", self.total_data['trk1'])
-            print("total trk2 TP, FP, FN:", self.total_data['trk2'])
-            print(f"Duplicate objects number: {self.duplicate_num}")
+            # print("total trk1 TP, FP, FN:", self.total_TPFPFN['trk1'])
+            # print("total trk2 TP, FP, FN:", self.total_TPFPFN['trk2'])
+            # print(f"Duplicate objects number: {self.duplicate_num}")
 
             # self.record_score(trk1, self.score_history['trk1'])
             # self.record_score(trk2, self.score_history['trk2'])
@@ -261,6 +357,7 @@ def get_parser() -> argparse.ArgumentParser:
     parser.add_argument("--version", type=str, default=None)
     parser.add_argument("--evaluate", type=int, default=0)
     parser.add_argument("--show_delay", action="store_true")
+    parser.add_argument("--vizInterrupt", action="store_true")
     return parser
 
 def main(parser) -> None:
@@ -273,6 +370,7 @@ def main(parser) -> None:
     else:
         version = "2024-05-30-15:34:18_noFusePedTruck(Good)"
     print(f"Visualizing version: {version}...")
+    root_path = f"/data/early_fusion_track_results/{version}"
 
     dataset = nusc_dataset(cfg["DATASET"])
     trk_res = res_data(
@@ -282,7 +380,6 @@ def main(parser) -> None:
         radarSeg_path=f"/data/early_fusion_track_results/{version}/radar_seg_res.json",
         radarTrk_path=f"/data/early_fusion_track_results/{version}/radar_tracking_res.json",
     )
-    trackEval = TrackEval()
     winName1 = 'LiDAR'
     winName2 = 'Fusion'
     cfg["VISUALIZER"]["trk_res"] = {
@@ -336,15 +433,16 @@ def main(parser) -> None:
     )
     winList = [trackViz, trackViz2, analyzeWin1, analyzeWin2]
     setWinPos(cfg["VISUALIZER"]["screenSize"], winList)
+    trackEval = TrackEval(trackViz=trackViz)
 
     frames = dataset.get_frames_meta()
+    frames = dataset.add_key_frames_info(frames)
     gts = dataset.get_groundTruth()
     idx_record = set()
     for gt in gts:
         for obj in gt['anns']:
             obj['velocity'] = np.array([0.0, 0.0])
     len_frames = len(frames)
-    current_first_frame_idx = 0
     max_idx = len_frames - 1
     idx = -1
     for win in winList:
@@ -361,7 +459,8 @@ def main(parser) -> None:
 
         if key == 27: # esc
             cv2.destroyAllWindows()
-            exit(0)
+            break
+            # exit(0)
         elif key == 100 or key == 83 or key == 54: # d
             idx += 1
         elif key == 97 or key == 81 or key == 52: # a
@@ -411,8 +510,8 @@ def main(parser) -> None:
         # if idx >= 1000:
         #     idx = 1000 - 1
 
-        if frames[idx]['first']:
-            current_first_frame_idx = idx
+        if idx < 0 or idx >= len(frames):
+            break
 
         for win in winList:
             cv2.setTrackbarPos('Frame', win.windowName, idx)
@@ -434,15 +533,15 @@ def main(parser) -> None:
             accumulate = False
         idx_record.add(idx)
         if frames[idx]['first']:
-            trackEval.score_history = {'trk1': {}, 'trk2': {}}
-        eval_trk1, eval_trk2 = trackEval.analyze_res(trk1, trk2, gt, distance_threshold=3.0, accumulate=accumulate)
+            trackEval.firstFrameReset()
+        eval_trk1, eval_trk2 = trackEval.analyze_res(trk1, trk2, gt, distance_threshold=3.0, accumulate=accumulate, vizInterrupt=args.vizInterrupt)
 
         trans = dataset.get_4f_transform(ego_pose, inverse=True)
         viz_start = time.time()
         if cfg["VISUALIZER"]["trk_res"]["draw_hist"]:
             hist_num = 4
             for i in reversed(range(hist_num)):
-                if idx - i - 1 == current_first_frame_idx:
+                if idx - i - 1 < frames[idx]['first_frame_idx']:
                     continue
                 token = frames[idx - i - 1]['token']
                 alpha = 1.0 - 0.9 * (i + 1) / 5
@@ -476,6 +575,8 @@ def main(parser) -> None:
             print(f"viz delay:{(viz_end - viz_start) / 1e-3: .2f} ms")
 
         print()
+
+    # trackEval.save_IDS_json(root_path=root_path)
         
 
 if __name__ == "__main__":
