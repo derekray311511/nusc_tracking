@@ -21,6 +21,7 @@ class TrackVisualizer:
         duration: float = 0.5,
         background_color: tuple = (50, 50, 50),
         grid: bool = True,
+        frameRate: int = 2,
         **kwargs,
     ):
         self.viz_cat = viz_cat
@@ -36,6 +37,7 @@ class TrackVisualizer:
         self.windowSize = np.array(windowSize, dtype=np.uint8)
         self.background_color = np.array(background_color, dtype=np.uint8)
         self.grid = grid
+        self.frameRate = frameRate
         self.image = np.ones((self.height, self.width, 3), dtype=np.uint8) * self.background_color
         
         cv2.resizeWindow(self.windowName, windowSize)
@@ -329,6 +331,7 @@ class TrackVisualizer:
             image = np.zeros_like(self.image)
         for det in nusc_det:
             vel = det['velocity'][:2]
+            vel = vel / self.frameRate
             if np.linalg.norm(vel) < 0.2:
                 continue
             start_point = det['translation'][:2]
