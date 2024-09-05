@@ -88,18 +88,23 @@ class nusc_dataset:
     def load_key_radar_pc(self):
         count = 0
         key_radar_PCs = {}
+        temp_radar_PCs_token = []
         for k, radar_pc in self.radar_PCs.items():
             if not radar_pc['is_key_frame']:
+                temp_radar_PCs_token.append(k)
                 continue
             sample_token = radar_pc['sample_token']
             key_radar_pc = {
                 'token': sample_token,
+                'radar_token': k,
+                'prev_radar_tokens': temp_radar_PCs_token,
                 'ego_pose_token': radar_pc['ego_pose_token'],
                 'points': radar_pc['points'],
             }
             key_radar_PCs.update({sample_token: key_radar_pc})
+            temp_radar_PCs_token = []
             count += 1
-        print(f"{count} radar_PCs loaded")
+        print(f"{count} key radar_PCs loaded")
         return key_radar_PCs
 
     def get_det_meta(self):
@@ -120,6 +125,17 @@ class nusc_dataset:
     
     def get_key_radar_pc(self, key_token):
         return self.key_radar_PCs[key_token]['points']
+
+    def get_radar_pcs(self, key_token, max_stack=7):
+        radar_pcs = []
+        stack = 1
+        for token in reversed(self.key_radar_PCs[key_token]['prev_radar_tokens']):
+            if stack >= max_stack:
+                break
+            radar_pcs += self.radar_PCs[token]['points']
+            stack += 1
+        radar_pcs += self.key_radar_PCs[key_token]['points']
+        return radar_pcs
 
     def get_lidar_pc(self, token):
         return self.lidar_PCs[token]
