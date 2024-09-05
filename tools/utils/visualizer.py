@@ -86,7 +86,16 @@ class TrackVisualizer:
                 cv2.drawContours(boxes_image, [box], 0, BGRcolor, thickness=thickness)
             self.image = cv2.addWeighted(self.image, 1, boxes_image, alpha, 0)
 
-    def draw_radar_pts(self, radar_pc: list, trans: np.ndarray, BGRcolor=(50, 50, 255), showContours=False):
+    def draw_radar_pts(
+        self, 
+        radar_pc: list, 
+        trans: np.ndarray, 
+        BGRcolor=(50, 50, 255), 
+        showContours=False, 
+        draw_vel=False, 
+        thickness=2, 
+        alpha=0.5
+    ):
         """Param :
 
         radar_pc : list of [x, y, z, vx, vy]
@@ -109,6 +118,18 @@ class TrackVisualizer:
         if showContours:
             convex_contour = cv2.convexHull(np.array(local_pts, dtype=int))
             cv2.drawContours(self.image, [convex_contour], 0, BGRcolor, 2)
+        if draw_vel:
+            vel = np.array([point[3:5] for point in radar_pc])
+            vel = np.hstack([vel, np.zeros((vel.shape[0], 1))])
+            vel = (trans[:3, :3] @ vel.T).T[:, :2] / self.resolution
+            vel = vel * np.array([1, -1])
+            pt_objs = []
+            for p, v in zip(local_pts, vel):
+                pt_objs.append({
+                    'translation': p,
+                    'velocity': v
+                })
+            self._draw_vel(pt_objs, BGRcolor, thickness, alpha)
 
     def draw_radar_seg(
         self, 
@@ -127,9 +148,9 @@ class TrackVisualizer:
                 # BGRcolor = getColorFromID(ID=k, colorRange=(50, 255))
                 BGRcolor = getColorFromID_HSV(ID=k, cycle_num=12)
                 if k == -1:  # id == -1
-                    self.draw_radar_pts(g, trans, BGRcolor=BGRcolor, showContours=False)
+                    self.draw_radar_pts(g, trans, BGRcolor=BGRcolor, showContours=False, **kwargs)
                 else:
-                    self.draw_radar_pts(g, trans, BGRcolor=BGRcolor, showContours=contours)
+                    self.draw_radar_pts(g, trans, BGRcolor=BGRcolor, showContours=contours, **kwargs)
         elif colorName:
             for k, g in itertools.groupby(radarSeg, lambda x: x[5]):
                 g = list(g)
@@ -137,12 +158,12 @@ class TrackVisualizer:
                 cat_name = decodeCategory([cat_num], self.viz_cat)[0]
                 if cat_num == -1:  # id == -1
                     B, G, R = 100, 100, 100 # Gray color
-                    self.draw_radar_pts(g, trans, BGRcolor=(B, G, R), showContours=False)
+                    self.draw_radar_pts(g, trans, BGRcolor=(B, G, R), showContours=False, **kwargs)
                 else:
                     BGRcolor = self.trk_colorMap[cat_name]
-                    self.draw_radar_pts(g, trans, BGRcolor=BGRcolor, showContours=contours)
+                    self.draw_radar_pts(g, trans, BGRcolor=BGRcolor, showContours=contours, **kwargs)
         else:
-            self.draw_radar_pts(radarSeg, trans) 
+            self.draw_radar_pts(radarSeg, trans, **kwargs)
 
     def world2ego(self, objects, ego_trans):
         ret = []
@@ -325,6 +346,8 @@ class TrackVisualizer:
         self.draw_det_bboxes(FN, trans, BGRcolor=fn_color, thickness=thickness, draw_id=False)
 
     def _draw_vel(self, nusc_det: list, BGRcolor=(255, 255, 255), thickness=1, alpha=1.0, **kwargs):
+        if thickness <= 0:
+            thickness = 2
         if alpha == 1.0:
             image = self.image
         else:
