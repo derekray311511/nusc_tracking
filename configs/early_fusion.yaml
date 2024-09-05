@@ -6,8 +6,8 @@ DATASET:
     # lidar_det_path: "/data/detection_result.json"
     lidar_pc_path: None
     radar_pc_path: "/data/radar_PC/radar_PC_13Hz_with_vcomp.json"
-    frames_meta_path: "/data/meta_data2/frames_meta.json"
-    groundTruth_path: "/data/meta_data2/annotations.json"
+    frames_meta_path: "/data/meta_data(gt_w_vel)/frames_meta.json"
+    groundTruth_path: "/data/meta_data(gt_w_vel)/annotations.json"
 
 EVALUATE:
     dataroot: "/data/small_data2"
@@ -35,8 +35,8 @@ EVALUATE:
 
 DETECTION: 
     bbox_score: 0.01
-    use_nms: False
-    nms_th: 0.5
+    use_nms: True
+    nms_th: 0.08
 
 SEGMENTOR:
     detCategories:
@@ -104,11 +104,16 @@ VISUALIZER:
     duration: 0.1
     background_color: [50, 50, 50]
     grid: True
+    frameRate: 2 # Important for visualization (for velocity)
+    radarPts:
+        draw_vel: False
     radarSeg:
         colorID: True
         colorName: False
         contours: False
+        draw_vel: False
     detBox:
+        draw: False
         score_th: 0.01
         colorName: False
         BGRcolor: [255, 150, 150]
@@ -117,14 +122,17 @@ VISUALIZER:
         colorName: False
         colorID: False
         BGRcolor: [52, 171, 235]
+        draw_name: False
         draw_vel: True
         draw_id: False
     radarTrkBox:
         colorName: True
         colorID: False
         BGRcolor: [0, 255, 0]
+        draw_name: False
         draw_vel: True
         draw_id: False
+        draw_score: False
     fusionBox:
         colorName: True
         colorID: False
