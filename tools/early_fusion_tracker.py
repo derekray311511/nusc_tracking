@@ -251,7 +251,7 @@ class PubTracker(object):
         Params:
             radarSeg: list of [x, y, z, vx, vy, id, cat_num]
         Returns:
-            radarObj: list of dict {'translation': [x, y, z], 'velocity': [vx, vy], 'detection_name': str}
+            radarObj: list of dict {'translation': [x, y, z], 'velocity': [vx, vy], 'detection_name': str, 'detection_score': float}
         """
         ret = []
         radarSeg = radarSeg[radarSeg[:, 5].argsort()]
