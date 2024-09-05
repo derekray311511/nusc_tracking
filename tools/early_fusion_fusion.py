@@ -44,9 +44,9 @@ FUSION_NAMES = [
     'car',
     'motorcycle',
     'trailer',
-    'truck',
+    # 'truck',
     'bicycle',
-    'pedestrian',
+    # 'pedestrian',
 ]
 
 
