@@ -20,11 +20,14 @@ from tqdm import tqdm
 from copy import deepcopy
 from utils.utils import log_parser_args, mkdir_or_exist, cal_func_time, get_current_datetime
 from utils.utils import encodeCategory, decodeCategory
-from utils.box_utils import get_3d_box_8corner, get_3d_box_2corner
+# from utils.box_utils import get_3d_box_8corner, get_3d_box_2corner
 from utils.box_utils import nms, is_points_inside_obb
 from utils.geometry_utils import *
 from utils.visualizer import TrackVisualizer
 from utils.nusc_eval import nusc_eval
+from collections import deque
+from geometry import *
+from pre_processing import *
 from tracker import PubTracker as lidarTracker
 from early_fusion_tracker import PubTracker as radarTracker
 from early_fusion_fusion import Fusion
@@ -55,6 +58,19 @@ NUSCENE_CLS_VELOCITY_ERROR = {
     'barrier': 1,
     'traffic_cone': 1,
 }
+
+class TrackHistory:
+    def __init__(self, max_frames=5):
+        self.history = deque(maxlen=max_frames)
+
+    def __len__(self):
+        return len(self.history)
+
+    def update(self, new_frame):
+        self.history.append(new_frame)
+
+    def get_history(self):
+        return list(self.history)
 
 class nusc_dataset:
     def __init__(self, cfg):
@@ -413,17 +429,25 @@ def main(parser) -> None:
             windowName='Fusion result',
             **cfg["VISUALIZER"],
         )
+        # trackViz3 = TrackVisualizer(
+        #     windowName='Trajectory',
+        #     **cfg["VISUALIZER"],
+        # )
         winList = [trackViz, trackViz2]
         for win in winList:
             cv2.createTrackbar('Frame', win.windowName, 0, len_frames, lambda x: None)
             cv2.setTrackbarPos('Frame', win.windowName, 0)
+        
+        # cfg["VISUALIZER"]["trkHist"] = cfg["VISUALIZER"]["fusionBox"]
+        # cfg["VISUALIZER"]["trkHist"]["colorName"] = False
+        # cfg["VISUALIZER"]["trkHist"]["colorID"] = True
+        # cfg["VISUALIZER"]["trkHist"]["draw_vel"] = False
+        # cfg["VISUALIZER"]["trkHist"]["legend"] = False
 
     # start tracking *****************************************
     print("Begin Tracking\n")
     start = time.time()
-
     thrFrames = []
-    testFrames = range(len_frames)
     pbar = tqdm(total=len_frames)
     # for i in tqdm(range(len_frames)):
     i = -1
@@ -451,9 +475,10 @@ def main(parser) -> None:
                 cfg["VISUALIZER"]["trkBox"]["draw_id"] = not cfg["VISUALIZER"]["trkBox"]["draw_id"]
                 cfg["VISUALIZER"]["radarTrkBox"]["draw_id"] = not cfg["VISUALIZER"]["radarTrkBox"]["draw_id"]
                 cfg["VISUALIZER"]["fusionBox"]["draw_id"] = not cfg["VISUALIZER"]["fusionBox"]["draw_id"]
+                cfg["VISUALIZER"]["trkHist"]["draw_id"] = not cfg["VISUALIZER"]["trkHist"]["draw_id"]
             elif key == ord('g'):
-                trackViz.grid = not trackViz.grid
-                trackViz2.grid = not trackViz2.grid
+                for win in winList:
+                    win.grid = not win.grid
             elif key == ord('d'):
                 i += 1
         else:
@@ -474,7 +499,8 @@ def main(parser) -> None:
         ego_pose = frames[i]['ego_pose']
         gt = gts[i]['anns']
         for obj in gt:
-            obj['velocity'] = np.array([0.0, 0.0])
+            # obj['velocity'] = np.array([0.0, 0.0])
+            obj['detection_score'] = 1.0
         name = "{}-{}".format(timestamp, token)
 
         # Reset tracker if this is first frame of the sequence
@@ -484,19 +510,33 @@ def main(parser) -> None:
             # fusion_module.update_scene_velos(detections, frames, i)  # get median velocities of current scene
             fusion_module.reset_id_log()
             last_time_stamp = timestamp
+            fusionTrkHist = TrackHistory(max_frames=7)
 
         # calculate time between two frames
-        # if i == 440:
-        #     last_time_stamp = timestamp
         time_lag = (timestamp - last_time_stamp)
         last_time_stamp = timestamp
 
         # Get LiDAR detection for current frame
         det = detections[token]
+        det.sort(reverse=True, key=lambda box:box['detection_score'])
 
         nmsDelay = 0
+        # NMS algo from PolyMOT (Better performance)
         if cfg["DETECTION"]["use_nms"]:
-            (det, _), nmsDelay = cal_func_time(nms, boxes=det, iou_th=cfg["DETECTION"]["nms_th"])
+            lsit_det, np_dets = dictdet2array(det, 'translation', 'size', 'velocity', 'rotation',
+                                            'detection_score', 'detection_name')
+            if len(np_dets) != 0:
+                box_dets, np_dets_bottom_corners = arraydet2box(np_dets)
+                assert len(np_dets) == len(box_dets) == len(np_dets_bottom_corners)
+                tmp_infos = {'np_dets': np_dets, 'np_dets_bottom_corners': np_dets_bottom_corners}
+                keep = blend_nms(box_infos=tmp_infos, metrics='iou_3d', thre=cfg["DETECTION"]["nms_th"])
+                keep_num = len(keep)
+            # corner case, no det left
+            else: keep = keep_num = 0
+            det = [det[i] for i in keep] if keep_num != 0 else []
+        # My old NMS algoirthm
+        # if cfg["DETECTION"]["use_nms"]:
+        #     (det, _), nmsDelay = cal_func_time(nms, boxes=det, iou_th=cfg["DETECTION"]["nms_th"])
 
         # Get Radar targets
         radar_pc = dataset.get_key_radar_pc(token)
@@ -605,29 +645,10 @@ def main(parser) -> None:
             fusion_active_trks.append(trk)
 
         nusc_fusion_trk["results"].update({token: deepcopy(temp_fusion_trks)})
+        fusionTrkHist.update(deepcopy(fusion_active_trks))
 
         # Vizsualize (realtime)
         if args.viz:
-
-            # if trackViz.play:
-            #     key = cv2.waitKey(int(trackViz.duration * 1000))
-            # else:
-            #     key = cv2.waitKey(0)
-
-            # if key == 27: # esc
-            #     cv2.destroyAllWindows()
-            #     exit(0)
-            # elif key == 32: # space
-            #     trackViz.play = not trackViz.play
-            # elif key == 43: # +
-            #     trackViz.duration *= 2
-            #     print(f"Viz duration set to {trackViz.duration}")
-            # elif key == 45: # -
-            #     trackViz.duration *= 0.5
-            #     print(f"Viz duration set to {trackViz.duration}")
-            # elif key == ord('g'):
-            #     trackViz.grid = not trackViz.grid
-            #     trackViz2.grid = not trackViz2.grid
 
             trans = dataset.get_4f_transform(ego_pose, inverse=True)
             viz_start = time.time()
@@ -641,8 +662,16 @@ def main(parser) -> None:
             trackViz2.draw_det_bboxes(fusion_active_trks, trans, **cfg["VISUALIZER"]["fusionBox"])
             # trackViz2.draw_det_bboxes(radar_active_trks, trans, **cfg["VISUALIZER"]["radarTrkBox"])
             trackViz2.draw_det_bboxes(gt, trans, **cfg["VISUALIZER"]["groundTruth"])
+            # trackViz3.draw_ego_car(img_src="/data/car1.png")
+            # trackViz3.draw_radar_seg(segResult, trans, **cfg["VISUALIZER"]["radarSeg"])
+            k = len(fusionTrkHist)
+            # for trks in fusionTrkHist.get_history():
+            #     k -= 1
+            #     alpha = 1.0 - 0.9 * k / len(fusionTrkHist)
+            #     trackViz3.draw_det_bboxes(trks, trans, **cfg["VISUALIZER"]["trkHist"], alpha=alpha)
             trackViz.show()
             trackViz2.show()
+            # trackViz3.show()
             viz_end = time.time()
             if args.show_delay:
                 print(f"nms delay: {nmsDelay / 1e-3: .2f} ms")
