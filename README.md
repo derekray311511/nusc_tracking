@@ -2,7 +2,7 @@
 This task is based on tracking by detection method. We already have detection results (Bounding boxes) from detector. Our goal is to develope a good tracking algorithm.
 
 ## Data preparation
-- **Detection result** and **frames meta data** from [**google drive**](https://drive.google.com/drive/folders/13jmwcS2qu89QftSmrWmGpgQu20gF8YPl?usp=share_link).
+- **Detection result** and **frames meta data** from [**google drive**](https://drive.google.com/drive/folders/18sDQvy3ItOX3KKxynLpbXBIRNyUZXDAK?usp=sharing).
 - If you want to **evaluate** and **visualize**, you will need to download **nuscenes trainval dataset** from [**Nuscenes website**](https://www.nuscenes.org/nuscenes#download).
 - The folder structure should be organized as follows before processing.
 ```
